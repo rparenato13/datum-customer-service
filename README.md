@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapa T01.1: build Maven multimódulo, inicialização das aplicações e testes de saúde HTTP. Os endpoints de negócio, persistência, autenticação, mensageria e containers serão implementados em etapas posteriores. O status `UP` atual valida somente a inicialização de cada aplicação; ainda não há dependências externas integradas.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. Os endpoints de negócio, persistência, autenticação, mensageria e orquestração com Docker Compose serão implementados em etapas posteriores. O status `UP` atual valida somente a inicialização de cada aplicação; ainda não há dependências externas integradas.
 
 ## Decisões da base
 
@@ -23,7 +23,7 @@ Etapa T01.1: build Maven multimódulo, inicialização das aplicações e testes
 - Acesso ao Maven Central na primeira execução para baixar Maven e dependências.
 - No macOS/Linux, `curl` ou `wget` e `unzip` para o Wrapper.
 
-Docker e bancos de dados ainda não são necessários nesta etapa.
+Para a execução via Docker, é necessário Docker com suporte a BuildKit (incluído no Docker Desktop), daemon ativo e acesso ao Docker Hub e ao Maven Central. Nesse caminho, o build roda dentro do container e dispensa JDK e Maven instalados no host. Bancos de dados ainda não são necessários.
 
 ## Validar o ambiente e o build
 
@@ -88,14 +88,66 @@ Também é possível executar um serviço diretamente pelo Maven:
 
 Execute cada comando em seu próprio terminal.
 
+## Construir e testar as imagens Docker
+
+Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos de build indica o contexto da raiz, necessário para acessar o POM pai e os POMs dos módulos.
+
+```sh
+docker build -f customer-service/Dockerfile -t datum/customer-service:t01.2 .
+docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t01.2 .
+```
+
+Cada Dockerfile tem dois estágios:
+
+1. `build`: Maven 3.9.9 com JDK 21 compila e executa os testes do serviço selecionado (`verify`). A versão do Maven coincide com a fixada pelo Wrapper usado no host. O cache de dependências acelera builds seguintes; os arquivos `target/` do host são ignorados.
+2. `runtime`: Eclipse Temurin JRE 21 recebe somente o JAR do serviço e o executa como usuário `app` (UID/GID 10001). O Maven e o código-fonte ficam no estágio de build.
+
+Os dois POMs de módulos são copiados para permitir a leitura do agregador Maven; cada build copia o código-fonte e executa os testes apenas do seu serviço. As tags das imagens-base recebem atualizações dos respectivos fornecedores, portanto builds futuros podem incorporar novos patches do JDK/JRE e do sistema operacional.
+
+O `.dockerignore` exclui `docs/`, histórico Git, saídas Maven, arquivos locais e `.env*` do contexto enviado ao Docker. Essa exclusão é independente do `.gitignore`.
+
+Inicie os containers:
+
+```sh
+docker run -d --rm --name datum-customer-t01-2 -p 127.0.0.1:18080:8080 datum/customer-service:t01.2
+docker run -d --rm --name datum-notification-t01-2 -p 127.0.0.1:18081:8081 datum/customer-notification-service:t01.2
+```
+
+As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
+
+```sh
+docker logs datum-customer-t01-2
+docker logs datum-notification-t01-2
+curl -i http://localhost:18080/actuator/health
+curl -i http://localhost:18081/actuator/health
+```
+
+Critério de validação: ambos respondem HTTP 200 com `{"status":"UP"}`. Se o `curl` ocorrer antes da inicialização, aguarde a mensagem `Started ...Application` e repita a consulta.
+
+Confira o usuário dos processos:
+
+```sh
+docker exec datum-customer-t01-2 id
+docker exec datum-notification-t01-2 id
+```
+
+Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
+
+```sh
+docker stop datum-customer-t01-2 datum-notification-t01-2
+```
+
+O `--rm` remove os containers após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos.
+
 ## Fluxo de desenvolvimento
 
 Cada incremento tem escopo explicado, alterações revisáveis, testes automatizados e validação manual local pelo responsável pelo projeto. O commit ocorre após essa validação, com mensagem que descreve o resultado do incremento; o envio ao GitHub é uma ação separada.
 
-Para revisar os arquivos locais antes do primeiro commit:
+Para revisar as alterações antes de cada commit:
 
 ```sh
 git status --short
+git diff
 git ls-files --others --exclude-standard
 ```
 
