@@ -1,0 +1,18 @@
+# Documentação local
+/docs/
+
+# Arquivos do macOS
+.DS_Store
+
+# Saídas do Maven
+**/target/
+
+# Configurações locais e segredos
+.env
+.env.*
+!.env.example
+.idea/
+*.iml
+
+# Logs locais
+*.log
