@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. Os endpoints de negócio, autenticação, mensageria e orquestração completa serão implementados em etapas posteriores. O serviço de notificações ainda não está conectado ao banco.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. Atualização, exclusão via API, listagem/busca/filtro, autenticação, mensageria e orquestração completa serão implementados em etapas posteriores. O serviço de notificações ainda não está conectado ao banco.
 
 ## Decisões da base
 
@@ -41,18 +41,20 @@ No Linux/Windows, configure `JAVA_HOME` para o JDK 21 instalado. No Windows, use
 
 Confirme Java 21 e Maven 3.9.9 na saída do Wrapper. O arquivo `.java-version` também indica Java 21 para quem usa jEnv; ele não substitui a configuração de `JAVA_HOME`.
 
-Resultado esperado: `BUILD SUCCESS`, dois testes rápidos aprovados (um por serviço) e os arquivos:
+Resultado esperado: `BUILD SUCCESS`, três testes rápidos aprovados (dois de clientes e um de notificações) e os arquivos:
 
 - `customer-service/target/customer-service-0.0.1-SNAPSHOT.jar`
 - `customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar`
 
-Cada teste rápido inicializa um servidor em porta aleatória e verifica `GET /actuator/health`. No `customer-service`, o perfil de teste `smoke` exclui a infraestrutura de persistência apenas desse teste HTTP. A persistência é verificada separadamente pelo perfil Maven `integration`, obrigatório para validar a T02.2:
+Os testes rápidos inicializam servidores em portas aleatórias e verificam saúde HTTP e a resposta segura para uma falha interna simulada. No `customer-service`, o perfil de teste `smoke` exclui a infraestrutura de persistência e substitui `CustomerService` por um mock somente nesses testes. A persistência e os endpoints reais são verificados separadamente pelo perfil Maven `integration`, obrigatório para validar a T03.1:
 
 ```sh
 ./mvnw -Pintegration clean verify
 ```
 
-Esse comando executa os dois testes rápidos e 12 cenários de integração em `CustomerPersistenceIT`, usando Testcontainers com PostgreSQL 17.11. O bootstrap é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir o Compose para esses testes. O Docker precisa estar ativo; se estiver indisponível, os testes de integração falham, em vez de serem ignorados. O banco local do DBeaver não recebe os dados dos testes.
+Esse comando executa 3 testes rápidos e 41 cenários de integração: 12 de persistência em `CustomerPersistenceIT` e 29 HTTP em `CustomerApiIT`, usando Testcontainers com PostgreSQL 17.11. O bootstrap é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir o Compose para esses testes. O Docker precisa estar ativo; se estiver indisponível, os testes de integração falham, em vez de serem ignorados. O banco local do DBeaver não recebe os dados dos testes.
+
+Os cenários HTTP cobrem 201 e consulta do cadastro confirmado, status ACTIVE/INACTIVE, 400 para campos/JSON/IDs inválidos, 404 para inexistentes/excluídos, 409 para CPF reservado e duas requisições concorrentes disputando o mesmo CPF. Verificações de privacidade conferem que erros e logs da aplicação não expõem os valores de CPF usados nos testes. A mensagem `Falha inesperada na API. Tipo: IllegalStateException` é produzida intencionalmente pelo teste da resposta 500; confira os contadores finais para avaliar o resultado.
 
 No Java 21, o suporte de testes do Mockito pode emitir um aviso sobre carregamento dinâmico de agente. Esse aviso foi observado na validação inicial, com os dois testes aprovados; confira os contadores de falhas e o resultado final do build.
 
@@ -106,7 +108,7 @@ Execute cada comando em seu próprio terminal.
 Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos de build indica o contexto da raiz, necessário para acessar o POM pai e os POMs dos módulos.
 
 ```sh
-docker build -f customer-service/Dockerfile -t datum/customer-service:t02.2 .
+docker build -f customer-service/Dockerfile -t datum/customer-service:t03.1 .
 docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t01.2 .
 ```
 
@@ -123,14 +125,14 @@ Prepare o PostgreSQL pelo Compose e exporte `CUSTOMER_DB_PASSWORD` conforme o se
 
 ```sh
 docker compose up -d --wait postgres
-docker run -d --rm --name datum-customer-t02-2 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db -p 127.0.0.1:18080:8080 datum/customer-service:t02.2
+docker run -d --rm --name datum-customer-t03-1 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db -p 127.0.0.1:18080:8080 datum/customer-service:t03.1
 docker run -d --rm --name datum-notification-t01-2 -p 127.0.0.1:18081:8081 datum/customer-notification-service:t01.2
 ```
 
 As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
 
 ```sh
-docker logs datum-customer-t02-2
+docker logs datum-customer-t03-1
 docker logs datum-notification-t01-2
 curl -i http://localhost:18080/actuator/health
 curl -i http://localhost:18081/actuator/health
@@ -141,14 +143,14 @@ Critério de validação: ambos respondem HTTP 200 com `{"status":"UP"}`. Se o `
 Confira o usuário dos processos:
 
 ```sh
-docker exec datum-customer-t02-2 id
+docker exec datum-customer-t03-1 id
 docker exec datum-notification-t01-2 id
 ```
 
 Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
 
 ```sh
-docker stop datum-customer-t02-2 datum-notification-t01-2
+docker stop datum-customer-t03-1 datum-notification-t01-2
 ```
 
 O `--rm` remove os containers das aplicações após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos. O PostgreSQL permanece ativo até `docker compose down`. Dentro da rede `datum_default`, a aplicação usa `postgres:5432`; no host, usa `localhost:15432`.
@@ -241,7 +243,7 @@ A escolha foi aprovada para este incremento: o futuro DELETE marcará `deleted_a
 
 O CPF continua reservado após a exclusão lógica. Reativação, restauração de registros excluídos e políticas de retenção não foram implementadas. A entidade JPA fica em `infrastructure/persistence`; o enum de status fica em `domain`. A API usará DTOs próprios quando for implementada.
 
-As constraints desta etapa protegem formato básico, campos obrigatórios, status e unicidade no banco. Validação de dígitos verificadores de CPF, formato de e-mail, contratos de entrada e respostas HTTP de erro serão implementados com a API na T03. Não há endpoint ou seed de demonstração de clientes nesta etapa; o banco local começa vazio.
+As constraints da T02.2 protegem formato básico, campos obrigatórios, status e unicidade no banco. A T03.1 acrescenta validação de dígitos verificadores de CPF, formato de e-mail e contratos HTTP, descritos abaixo. Não há seed de demonstração; o banco começa vazio e recebe os cadastros feitos pela API.
 
 ### Conferência pelo DBeaver
 
@@ -257,6 +259,61 @@ SELECT count(*) FROM customers;
 ```
 
 O esperado é migration versão `1` com sucesso, as colunas descritas acima e zero clientes se você ainda não inseriu dados. Reinicie a aplicação e confira que o Flyway mantém uma única migration aplicada. Não edite a V1 depois de aplicada; mudanças posteriores devem ganhar novas migrations (`V2__...`, etc.).
+
+## Cadastro e consulta por ID (T03.1)
+
+O `CustomerController` recebe e valida DTOs, o `CustomerService` delimita as transações, e o repository persiste/consulta os clientes. Entidades JPA não são serializadas diretamente. As datas retornadas usam a precisão de microssegundos do PostgreSQL, preservando os mesmos valores no POST e no GET subsequente.
+
+| Operação | Sucesso | Erros previstos nesta etapa |
+|---|---|---|
+| `POST /customers` | 201, corpo do cliente e `Location: /customers/{id}` | 400 para entrada inválida; 409 para CPF já registrado |
+| `GET /customers/{id}` | 200 e corpo do cliente | 400 para ID inválido; 404 para inexistente ou excluído logicamente |
+
+O cadastro exige `name`, `cpf`, `email` e `status`. Nome tem limite de 150 caracteres; e-mail, 254. Espaços nas extremidades de nome/CPF/e-mail são removidos antes da validação. CPF deve conter 11 dígitos sem máscara e dígitos verificadores válidos; valores com dígitos todos iguais são recusados. Status aceita exatamente `ACTIVE` ou `INACTIVE`. JSON malformado e propriedades desconhecidas também são recusados. O ID e as datas são definidos pelo servidor.
+
+Os erros usam `application/problem+json` (`ProblemDetail`, RFC 9457), com `type`, `title`, `status`, `detail`, `instance` e extensão `code`. Erros de campos incluem `errors`, com `field` e `message`, sem os valores rejeitados. Códigos desta etapa: `VALIDATION_ERROR`, `INVALID_JSON`, `INVALID_REQUEST`, `CUSTOMER_NOT_FOUND`, `CPF_ALREADY_REGISTERED` e `INTERNAL_ERROR` (500, mensagem genérica). Somente a violação da constraint de CPF é convertida em 409; outras falhas de integridade não são apresentadas como CPF duplicado.
+
+A aplicação não registra payloads nem mensagens SQL de constraints, que podem conter dados pessoais. O handler de erro inesperado registra somente a classe da falha. Logs estruturados e correlação serão tratados na etapa de observabilidade.
+
+O POST persiste o cliente nesta etapa. JWT/roles e publicação de `CUSTOMER_CREATED` ainda não foram implementados; serão acrescentados nas etapas de segurança e mensageria, após os contratos correspondentes. Não houve alteração da migration V1.
+
+### Roteiro de validação local
+
+Execute `./mvnw -Pintegration clean verify` com Java 21 e Docker ativo. Encerre a versão anterior do serviço e inicie o novo JAR com as variáveis do banco, conforme a seção de execução manual.
+
+Cadastre um cliente fictício com CPF válido no algoritmo:
+
+```sh
+curl -i -X POST http://localhost:8080/customers \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Cliente de Demonstracao","cpf":"52998224725","email":"cliente@example.test","status":"ACTIVE"}'
+```
+
+Esperado: 201 com ID, dados cadastrados, datas e header `Location`. Use o ID retornado na consulta abaixo (substitua `1` se o ID for diferente):
+
+```sh
+curl -i http://localhost:8080/customers/1
+```
+
+Esperado: 200 com o mesmo cliente. Repetir o POST com o mesmo CPF deve produzir 409 e não criar outra linha. Se esse CPF já existir no banco local, o primeiro POST também retorna 409; consulte o cadastro existente no DBeaver ou use outro CPF fictício válido.
+
+Teste uma entrada inválida e um ID inexistente:
+
+```sh
+curl -i -X POST http://localhost:8080/customers \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"","cpf":"123","email":"invalido","status":"ACTIVE"}'
+curl -i http://localhost:8080/customers/9223372036854775807
+```
+
+Esperado: 400 com erros de campos e 404, respectivamente. No DBeaver, confira os dados gravados:
+
+```sql
+SELECT id, name, status, created_at, updated_at, deleted_at
+FROM customers ORDER BY id;
+```
+
+Somente o cadastro válido deve gerar registro; IDs podem apresentar intervalos por causa de tentativas de inserção rejeitadas. Para testar a API na imagem Docker, use os comandos da seção de containers e substitua a porta 8080 por 18080 nos exemplos.
 
 ## Fluxo de desenvolvimento
 

@@ -11,9 +11,22 @@ spring:
       ddl-auto: validate
   flyway:
     clean-disabled: true
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
 
 server:
   port: ${SERVER_PORT:8080}
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+
+# Mensagens do driver podem incluir CPF/valores de constraints. O handler da API
+# mapeia falhas sem registrar mensagens SQL ou payloads.
+logging:
+  level:
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: "OFF"
 
 management:
   endpoints:

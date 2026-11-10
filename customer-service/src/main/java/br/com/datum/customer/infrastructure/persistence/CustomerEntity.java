@@ -13,6 +13,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 
 @Entity
@@ -68,19 +69,19 @@ public class CustomerEntity {
 
     public void markDeleted() {
         if (deletedAt == null) {
-            deletedAt = Instant.now();
+            deletedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
         }
     }
 
     @PrePersist
     private void onCreate() {
-        createdAt = Instant.now();
+        createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
         updatedAt = createdAt;
     }
 
     @PreUpdate
     private void onUpdate() {
-        updatedAt = Instant.now();
+        updatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
     }
 
     public Long getId() {
