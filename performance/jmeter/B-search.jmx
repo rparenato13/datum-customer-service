@@ -1,0 +1,97 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="B-search" enabled="true">
+      <stringProp name="TestPlan.comments">Dados sinteticos; token somente via DATUM_TOKEN; resultados sem corpo/headers.</stringProp>
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" testname="Variables">
+        <collectionProp name="Arguments.arguments" />
+      </elementProp>
+    </TestPlan>
+    <hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="B-search" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="Loop">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">-1</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">${__P(threads,4)}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">${__P(ramp,3)}</stringProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.duration">${__P(duration,15)}</stringProp>
+        <stringProp name="ThreadGroup.delay">0</stringProp>
+      </ThreadGroup>
+      <hashTree>
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Authentication in memory" enabled="true">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="" elementType="Header">
+              <stringProp name="Header.name">Authorization</stringProp>
+              <stringProp name="Header.value">Bearer ${__groovy(System.getenv('DATUM_TOKEN'))}</stringProp>
+            </elementProp>
+            <elementProp name="" elementType="Header">
+              <stringProp name="Header.name">Content-Type</stringProp>
+              <stringProp name="Header.value">application/json</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree />
+        <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Bounded think time" enabled="true">
+          <stringProp name="ConstantTimer.delay">${__P(think_ms,100)}</stringProp>
+        </ConstantTimer>
+        <hashTree />
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="B-search" enabled="true">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="HTTP parameters">
+            <collectionProp name="Arguments.arguments" />
+          </elementProp>
+          <stringProp name="HTTPSampler.domain">customer-service</stringProp>
+          <stringProp name="HTTPSampler.port">8080</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.path">/customers/search?name=CLIENTE&amp;status=ACTIVE&amp;page=0&amp;size=20</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <stringProp name="HTTPSampler.connect_timeout">2000</stringProp>
+          <stringProp name="HTTPSampler.response_timeout">5000</stringProp>
+          <stringProp name="HTTPSampler.implementation">HttpClient4</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="Safe application code" enabled="true">
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="script">def code = 'NONE'
+if (prev.getResponseCode() != '200' &amp;&amp; prev.getResponseCode() != '201') {
+  try {
+    def parsed = new groovy.json.JsonSlurper().parseText(prev.getResponseDataAsString())
+    code = ['SCORE_TIMEOUT','SCORE_UNAVAILABLE','VALIDATION_ERROR','CPF_ALREADY_REGISTERED','AUTHENTICATION_REQUIRED','ACCESS_DENIED'].contains(parsed.code) ? parsed.code : 'OTHER'
+  } catch (Exception ignored) { code = 'OTHER' }
+}
+vars.put('applicationCode', code)
+
+if (prev.getResponseCode() in ['200','201']) {
+  try {
+    def body = new groovy.json.JsonSlurper().parseText(prev.getResponseDataAsString())
+    def label = prev.getSampleLabel()
+    def valid = true
+    if (label in ['A-list','B-search']) valid = body.content.size() == 20 &amp;&amp; body.totalElements == Integer.parseInt(props.getProperty('customer_count','100'))
+    if (label == 'C-score') valid = body.score == 750 &amp;&amp; body.classification == 'LOW_RISK'
+    if (label == 'D-create') valid = body.id &gt; 0 &amp;&amp; body.version == 0 &amp;&amp; body.status == 'ACTIVE'
+    if (!valid) { prev.setSuccessful(false); prev.setResponseMessage('CONTRACT_ERROR') }
+  } catch (Exception ignored) { prev.setSuccessful(false); prev.setResponseMessage('CONTRACT_ERROR') }
+}
+</stringProp>
+          </JSR223PostProcessor>
+          <hashTree />
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Expected HTTP status" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="expected">${__P(expected_status,200)}</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree />
+        </hashTree>
+      </hashTree>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

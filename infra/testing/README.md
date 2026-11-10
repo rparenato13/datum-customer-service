@@ -15,7 +15,7 @@ infra/rabbitmq/.venv/bin/python -m pip install -r infra/rabbitmq/requirements-te
 
 | Camada | Comando | O que executa |
 |---|---|---|
-| Rápida | `infra/rabbitmq/.venv/bin/python infra/testing/run.py --suite fast` | Maven `clean verify`, 139 verificações de contratos, quatro testes do coletor, 11 do executor e sete do bootstrap RabbitMQ; sem Docker |
+| Rápida | `infra/rabbitmq/.venv/bin/python infra/testing/run.py --suite fast` | Maven `clean verify`, 139 verificações de contratos, quatro testes do coletor, 11 do executor e sete do bootstrap RabbitMQ e 17 do executor/analise T15; sem Docker |
 | Integração | `infra/rabbitmq/.venv/bin/python infra/testing/run.py --suite integration` | Maven `-Pintegration clean verify`, incluindo os rápidos, e as mesmas verificações Python |
 | Smoke | `infra/rabbitmq/.venv/bin/python infra/testing/run.py --suite smoke` | Build de duas imagens `:t13` e jornada completa em ambiente descartável |
 | Completa | `infra/rabbitmq/.venv/bin/python infra/testing/run.py --suite all` | Integração + verificações Python + smoke, executando o Maven uma única vez |

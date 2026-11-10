@@ -1,0 +1,6 @@
+name,cpf,email,status
+Cliente Sintetico 100000000,10000000019,cliente.100000000@example.test,ACTIVE
+Cliente Sintetico 100000001,10000000108,cliente.100000001@example.test,ACTIVE
+Cliente Sintetico 100000002,10000000280,cliente.100000002@example.test,ACTIVE
+Cliente Sintetico 100000003,10000000361,cliente.100000003@example.test,ACTIVE
+Cliente Sintetico 100000004,10000000442,cliente.100000004@example.test,ACTIVE
