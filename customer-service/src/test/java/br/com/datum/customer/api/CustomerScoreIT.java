@@ -45,7 +45,8 @@ import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMoc
 import static org.junit.jupiter.api.Assertions.*;
 
 @Testcontainers
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "customer.outbox.publisher-enabled=false")
 @SecurityTestFixture
 @ExtendWith(OutputCaptureExtension.class)
 class CustomerScoreIT {
@@ -90,6 +91,7 @@ class CustomerScoreIT {
 
     @BeforeEach
     void resetDisposableData() {
+        jdbc.update("DELETE FROM customer_outbox");
         jdbc.update("DELETE FROM customers");
         http.getRestTemplate().setInterceptors(List.of());
         PROVIDER.resetToDefaultMappings();

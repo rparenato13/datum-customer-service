@@ -1,6 +1,7 @@
 package br.com.datum.customer.application;
 
 import br.com.datum.customer.domain.CustomerStatus;
+import br.com.datum.customer.application.events.CustomerCreatedEventRecorder;
 import br.com.datum.customer.infrastructure.persistence.CustomerEntity;
 import br.com.datum.customer.infrastructure.persistence.CustomerRepository;
 import org.springframework.data.domain.Page;
@@ -14,9 +15,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class CustomerService {
 
     private final CustomerRepository repository;
+    private final CustomerCreatedEventRecorder events;
 
-    public CustomerService(CustomerRepository repository) {
+    public CustomerService(CustomerRepository repository, CustomerCreatedEventRecorder events) {
         this.repository = repository;
+        this.events = events;
     }
 
     @Transactional
@@ -24,7 +27,9 @@ public class CustomerService {
         var customer = new CustomerEntity(name, cpf, email);
         customer.changeStatus(status);
         // A constraint do banco garante unicidade também sob concorrência.
-        return repository.saveAndFlush(customer);
+        var saved = repository.saveAndFlush(customer);
+        events.record(saved.getId(), saved.getCreatedAt());
+        return saved;
     }
 
     @Transactional(readOnly = true)

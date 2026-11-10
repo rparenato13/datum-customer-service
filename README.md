@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. Outbox, publicação pelas aplicações, consumidores e orquestração completa permanecem pendentes. O serviço de notificações ainda não está conectado ao banco.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. Consumidores e orquestração completa permanecem pendentes. O serviço de notificações ainda não está conectado ao banco.
 
 ## Decisões da base
 
@@ -43,7 +43,7 @@ No Linux/Windows, configure `JAVA_HOME` para o JDK 21 instalado. No Windows, use
 
 Confirme Java 21 e Maven 3.9.9 na saída do Wrapper. O arquivo `.java-version` também indica Java 21 para quem usa jEnv; ele não substitui a configuração de `JAVA_HOME`.
 
-Resultado esperado: `BUILD SUCCESS`, 113 testes rápidos aprovados (48 de segurança, 62 do cliente HTTP/configuração de Score, dois de clientes e um de notificações) e os arquivos:
+Resultado esperado: `BUILD SUCCESS`, 129 testes rápidos aprovados (48 de segurança, 62 do cliente HTTP/configuração de Score, 16 do codec/publicador/agendador de outbox, dois de clientes e um de notificações) e os arquivos:
 
 - `customer-service/target/customer-service-0.0.1-SNAPSHOT.jar`
 - `customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar`
@@ -54,7 +54,9 @@ Os testes rápidos verificam saúde, resposta segura para falha interna, autenti
 ./mvnw -Pintegration clean verify
 ```
 
-Esse comando executa 113 testes rápidos e 153 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT` e 19 do endpoint de Score em `CustomerScoreIT`, usando Testcontainers com PostgreSQL 17.11. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir o Compose/Keycloak/WireMock para a suíte Maven. O Docker precisa estar ativo para os testes com banco; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco local do DBeaver não recebe os dados dos testes.
+Esse comando executa 129 testes rápidos e 182 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT`, 19 de Score em `CustomerScoreIT` e 29 de outbox/publicação em `CustomerOutboxIT`. São **311 testes**. PostgreSQL 17.11 e RabbitMQ 4.4.0 são criados por Testcontainers. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap PostgreSQL é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir as dependências do Compose para a suíte Maven. O Docker precisa estar ativo para os testes de integração; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco e o broker locais não recebem os dados dos testes.
+
+Os 29 cenários de outbox verificam commit/rollback atômicos, falha na inserção do evento, CPF duplicado sem novo evento, payload/propriedades AMQP, broker parado, mandatory return, confirmação ausente/negativa, backoff persistido, evento inválido bloqueado, expiração de reserva, proteção contra confirmação por dono antigo, claims/publicações concorrentes e duplicata após queda entre confirm e atualização local. Os testes controlam o relay explicitamente para reproduzir falhas; apenas o agendamento fica desativado neles. O caminho real agendado é verificado na imagem Docker. Nenhum consumidor de negócio é antecipado.
 
 Score acrescenta 81 cenários: 49 do adaptador HTTP, 13 da configuração e 19 da API integrada. Eles verificam validação estrita do contrato (inclusive CPF divergente, campos ausentes, tipos incorretos, duplicidade de propriedades, JSON incompleto e corpo acima de 4 KiB), contagem de tentativas, recuperação de falha transitória, timeout antes dos headers e durante o corpo, conexão recusada, redirect bloqueado, interrupção, USER/ADMIN, 401/403/400/404/502/503/504 e ausência de CPF/token nos erros e logs. A integração carrega as mesmas fixtures de `infra/wiremock/`, verifica que clientes INACTIVE continuam consultáveis e que excluídos/inexistentes não chamam o provedor. A transação do banco termina antes da chamada HTTP; Score não é persistido.
 
@@ -81,7 +83,7 @@ Use a senha efetiva de `CUSTOMER_DB_PASSWORD` do seu `.env` e ajuste a URL se al
 
 O issuer padrão é `http://localhost:18090/realms/datum` e o JWKS é derivado desse endereço. Se alterou a porta do Keycloak, exporte `CUSTOMER_JWT_ISSUER_URI` com o issuer efetivo antes de iniciar a API; `CUSTOMER_JWT_JWK_SET_URI` pode definir separadamente o endereço para buscar as chaves. A audiência padrão é `customer-api`.
 
-Na primeira inicialização, o Flyway aplica `V1__create_customers.sql`. Nas seguintes, valida o histórico e aplica somente migrations pendentes. O Hibernate usa `ddl-auto=validate`; divergências de schema interrompem a inicialização. O endpoint de saúde do serviço iniciado normalmente passa a considerar a conexão com o banco.
+Na primeira inicialização, o Flyway aplica `V1__create_customers.sql` e `V2__create_customer_outbox.sql`. Nas seguintes, valida o histórico e aplica somente migrations pendentes. O Hibernate usa `ddl-auto=validate`; divergências de schema interrompem a inicialização. O endpoint de saúde considera a conexão com o banco. O RabbitMQ não compõe esse healthcheck: seu estado é verificado separadamente, pois uma indisponibilidade do broker não impede o cadastro com evento pendente no banco.
 
 No segundo:
 
@@ -128,7 +130,7 @@ O valor fica na variável do terminal, sem ser incluído no comando salvo no his
 Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos de build indica o contexto da raiz, necessário para acessar o POM pai e os POMs dos módulos.
 
 ```sh
-docker build -f customer-service/Dockerfile -t datum/customer-service:t05.2 .
+docker build -f customer-service/Dockerfile -t datum/customer-service:t07.2 .
 docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t01.2 .
 ```
 
@@ -141,18 +143,19 @@ Os dois POMs de módulos são copiados para permitir a leitura do agregador Mave
 
 O `.dockerignore` exclui `docs/`, histórico Git, saídas Maven, arquivos locais e `.env*` do contexto enviado ao Docker. Essa exclusão é independente do `.gitignore`.
 
-Prepare PostgreSQL/Keycloak/WireMock pelo Compose e exporte `CUSTOMER_DB_PASSWORD` conforme o seu `.env`, como na execução Java. Inicie os containers:
+Prepare PostgreSQL/Keycloak/WireMock/RabbitMQ pelo Compose e exporte `CUSTOMER_DB_PASSWORD` e `CUSTOMER_RABBITMQ_PASSWORD` conforme o seu `.env`, como na execução Java. Se usa o default local do broker e ainda não exportou a senha, faça `export CUSTOMER_RABBITMQ_PASSWORD='customer_rabbitmq_local_only'`. Inicie os containers:
 
 ```sh
-docker compose up -d --wait postgres keycloak wiremock
-docker run -d --rm --name datum-customer-t05-2 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 -p 127.0.0.1:18080:8080 datum/customer-service:t05.2
+python3 infra/rabbitmq/configure.py
+docker compose up -d --wait postgres keycloak wiremock rabbitmq
+docker run -d --rm --name datum-customer-t07-2 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 --env CUSTOMER_RABBITMQ_HOST=rabbitmq --env CUSTOMER_RABBITMQ_PORT=5672 --env CUSTOMER_RABBITMQ_PASSWORD -p 127.0.0.1:18080:8080 datum/customer-service:t07.2
 docker run -d --rm --name datum-notification-t01-2 -p 127.0.0.1:18081:8081 datum/customer-notification-service:t01.2
 ```
 
 As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
 
 ```sh
-docker logs datum-customer-t05-2
+docker logs datum-customer-t07-2
 docker logs datum-notification-t01-2
 curl -i http://localhost:18080/actuator/health
 curl -i http://localhost:18081/actuator/health
@@ -163,14 +166,14 @@ Critério de validação: ambos respondem HTTP 200 com `{"status":"UP"}`. Se o `
 Confira o usuário dos processos:
 
 ```sh
-docker exec datum-customer-t05-2 id
+docker exec datum-customer-t07-2 id
 docker exec datum-notification-t01-2 id
 ```
 
 Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
 
 ```sh
-docker stop datum-customer-t05-2 datum-notification-t01-2
+docker stop datum-customer-t07-2 datum-notification-t01-2
 ```
 
 O `--rm` remove os containers das aplicações após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos. O PostgreSQL permanece ativo até `docker compose down`. Dentro da rede `datum_default`, a aplicação usa `postgres:5432`; no host, usa `localhost:15432`.
@@ -278,7 +281,7 @@ ORDER BY ordinal_position;
 SELECT count(*) FROM customers;
 ```
 
-O esperado é migration versão `1` com sucesso, as colunas descritas acima e zero clientes se você ainda não inseriu dados. Reinicie a aplicação e confira que o Flyway mantém uma única migration aplicada. Não edite a V1 depois de aplicada; mudanças posteriores devem ganhar novas migrations (`V2__...`, etc.).
+O esperado agora é migration `1` de clientes e migration `2` de outbox com sucesso, as colunas de clientes descritas acima e zero clientes se você ainda não inseriu dados. Reinicie a aplicação e confira que não há reaplicação de migrations. Não edite migrations já aplicadas; mudanças posteriores devem ganhar novas versões.
 
 ## Cadastro e consulta por ID (T03.1)
 
@@ -295,7 +298,7 @@ Os erros usam `application/problem+json` (`ProblemDetail`, RFC 9457), com `type`
 
 A aplicação não registra payloads nem mensagens SQL de constraints, que podem conter dados pessoais. O handler de erro inesperado registra somente a classe da falha. Logs estruturados e correlação serão tratados na etapa de observabilidade.
 
-O POST persiste o cliente e, desde a T04.2, exige JWT com perfil ADMIN. A publicação de `CUSTOMER_CREATED` será acrescentada na etapa de mensageria, conforme os contratos aprovados na T06. Não houve alteração da migration V1.
+O POST exige JWT ADMIN desde a T04.2. Desde a T07.2, persiste cliente e `CUSTOMER_CREATED` na mesma transação; o relay publica o evento após o commit, conforme os contratos aprovados na T06. A migration V1 permanece inalterada; a V2 cria o outbox.
 
 ### Roteiro de validação local
 
@@ -840,7 +843,7 @@ O ambiente `.venv` é ignorado pelo Git. A instalação inicial baixa dependênc
 
 ## RabbitMQ local e topologia (T07.1)
 
-Este incremento prepara a infraestrutura aprovada na T06. O POST ainda não grava outbox nem publica eventos; a publicação confiável será o próximo incremento T07.2. Não há consumidor de negócio nesta etapa. Nenhuma migration ou classe Java foi alterada.
+Este incremento preparou a infraestrutura aprovada na T06. A T07.2, descrita adiante, conecta o cadastro ao outbox e à publicação. Ainda não há consumidor de negócio.
 
 A imagem oficial está fixada em `rabbitmq:4.4.0-management`, com suporte a quorum queues, TTL e dead-letter at-least-once. A topologia é gerada diretamente de [contracts/events/topology.v1.json](contracts/events/topology.v1.json); não mantemos uma segunda lista manual de filas. São quatro exchanges, dez filas, doze bindings e dez policies. O volume `rabbitmq_data` preserva os dados e o hostname fixo `rabbitmq` mantém a identidade do nó durante recriações. É um nó local; não representa um cluster de alta disponibilidade.
 
@@ -898,7 +901,7 @@ Acesse o console com `rabbitmq_admin` e a senha efetiva do `.env` (default de de
 - Policy das principais: delivery-limit 5 e dead-letter at-least-once para sua DLQ.
 - Policies de retry: TTLs de 5000/30000/120000 ms e retorno pelo exchange `datum.customer.redelivery` apenas à fila do consumidor correspondente.
 
-As filas devem começar sem mensagens, pois as aplicações ainda não publicam ou consomem eventos. Estatísticas do console podem levar alguns segundos para aparecer. A verificação usa policies declaradas e seus padrões/prioridades para conferir a seleção mesmo antes da coleta de estatísticas. Não usa contadores de mensagens como prova de publicação pela aplicação.
+Na infraestrutura recém-criada, antes dos cadastros da T07.2, as filas começam vazias. Desde a T07.2, novos cadastros podem acrescentar mensagens à fila de criação; ainda não há consumidor de negócio. Estatísticas do console podem levar alguns segundos para aparecer. A verificação usa policies declaradas e seus padrões/prioridades para conferir a seleção mesmo antes da coleta de estatísticas. O verificador de infraestrutura não usa contadores como prova de publicação pela aplicação; a T07.2 verifica também o conteúdo e a confirmação do envio.
 
 Para parar apenas o broker preservando dados:
 
@@ -934,6 +937,110 @@ infra/rabbitmq/.venv/bin/python infra/rabbitmq/smoke.py --all-retries
 A transferência de uma mensagem com o DLX funcionando não comprova todos os casos de falha possíveis. Perda de conexão entre confirm/ACK, destino indisponível, saturação, delivery-limit sob crashes e deduplicação transacional continuarão sendo verificados com as aplicações nas T07.2/T08/T09/T11. O RabbitMQ disponível nesta etapa não implica que cadastros antigos já tenham eventos.
 
 Referências: [imagem oficial](https://github.com/docker-library/official-images/blob/master/library/rabbitmq), [importação de definitions](https://www.rabbitmq.com/docs/definitions), [credenciais e hashes](https://www.rabbitmq.com/docs/passwords), [permissões](https://www.rabbitmq.com/docs/access-control).
+
+## Cadastro e publicação confiável por outbox (T07.2)
+
+`POST /customers` agora grava cliente e um registro em `customer_outbox` na mesma transação PostgreSQL. Falha ao persistir qualquer um deles desfaz ambos. A resposta continua sendo 201 após o commit, sem aguardar o RabbitMQ. CPF duplicado continua 409 e não gera um segundo evento. PUT/DELETE não geram eventos de criação.
+
+A nova migration `V2__create_customer_outbox.sql` preserva os clientes existentes. Não há backfill: apenas novos cadastros feitos pelo serviço geram eventos. A tabela tem FK para o cliente, unicidade por cliente/tipo de criação, corpo de até 16 KiB, estado, tentativas, próximo envio, reserva e instante de publicação. Não é exposta por endpoint público.
+
+### Fluxo e garantias
+
+1. O cadastro cria um UUID v4 e persiste o JSON mínimo v1 com `occurredAt` igual ao `created_at` do cliente. Nome, CPF e e-mail não entram no evento.
+2. O agendador busca registros PENDING vencidos com `FOR UPDATE SKIP LOCKED`, reserva um por vez e confirma essa transação curta. A reserva tem token aleatório e expiração.
+3. Fora da transação do banco, valida o corpo contra as regras do contrato e envia bytes UTF-8 originais com delivery mode persistente, message_id/correlation_id iguais ao eventId, tipo CUSTOMER_CREATED e mandatory habilitado.
+4. Aguarda confirm correlacionado por até 5 s. Somente ACK positivo sem basic.return permite marcar PUBLISHED. Falha, NACK, return e timeout mantêm PENDING, com backoff de 1, 2, 4, 8, 16 e depois 30 s, sem limite de tentativas que descarte o evento.
+5. Um corpo estruturalmente inválido é marcado BLOCKED/INVALID_EVENT para análise, sem publicar ou impedir eventos saudáveis. Não há endpoint automático de replay/desbloqueio.
+
+O mesmo UUID, instante e corpo são preservados em todas as tentativas. Spring acrescenta headers técnicos de correlação do transporte, que podem mudar entre tentativas; não são campos do contrato nem contêm nomes de classes/dados pessoais. Não é usado conversor de objetos Java para serialização AMQP.
+
+A reserva padrão é de 30 s. Se a instância morrer, outra poderá retomar após a expiração. Atualizações finais verificam o token da reserva: um dono antigo não pode sobrescrever o resultado de uma reserva mais recente. O relay não mantém conexão/transação PostgreSQL ocupada enquanto aguarda o broker. Cada ciclo trabalha até dez eventos; após falha de transporte, encerra o ciclo para evitar multiplicar conexões.
+
+Uma queda depois de o broker aceitar o evento e antes de marcar PUBLISHED pode produzir nova entrega do mesmo evento. Portanto, a garantia é **at-least-once**, com deduplicação dos efeitos a implementar no consumidor da T09; não existe promessa de exactly-once. PUBLISHED significa confirmação pelo broker, não notificação processada. Um cliente excluído logicamente após o cadastro continua tendo seu fato de criação publicado.
+
+O publicador usa `customer_app`, sem permissão de configurar recursos; `spring.rabbitmq.dynamic=false` evita declaração por RabbitAdmin. A topologia deve ser preparada pela T07.1. Falha de credencial ou configuração de rota conserva o registro pendente e sinaliza código técnico, sem apagar o cadastro. Os logs próprios registram somente eventId, código e classe de falha, nunca payload, CPF, e-mail, senha ou token.
+
+### Configuração
+
+| Variável | Padrão | Uso |
+|---|---|---|
+| `CUSTOMER_RABBITMQ_HOST` | localhost | Em container: rabbitmq |
+| `CUSTOMER_RABBITMQ_PORT` | 15673 | Em container: 5672 |
+| `CUSTOMER_RABBITMQ_PASSWORD` | customer_rabbitmq_local_only | Senha da conta customer_app no broker |
+| `OUTBOX_PUBLISHER_ENABLED` | true | false pausa apenas o envio; novos cadastros continuam gravando outbox |
+| `OUTBOX_POLL_DELAY_MS` | 1000 | Intervalo após cada ciclo, de 100 a 10000 ms |
+| `OUTBOX_BATCH_SIZE` | 10 | Até 100 reservas individuais por ciclo, mínimo 1 |
+| `OUTBOX_CONFIRM_TIMEOUT_MS` | 5000 | De 100 a 5000 ms para confirm |
+| `OUTBOX_LEASE_MS` | 30000 | De 20000 a 120000 ms; ao menos confirm timeout + 15000 ms |
+
+Vhost `datum`, usuário `customer_app`, exchange `datum.customer.events`, routing key `customer.created.v1`. Conexão tem timeout de 2 s e RPC de canal, 5 s. Confirms correlacionados, returns e mandatory são exigidos na configuração do publicador. Não há retry oculto no RabbitTemplate; a política de novas tentativas pertence ao outbox. Valores inválidos de configuração impedem a inicialização.
+
+As variáveis do `.env` não são exportadas automaticamente para o Java no terminal. Se usa senhas ou portas próprias, exporte os valores efetivos. A porta AMQP não é a porta do console.
+
+### Validação local: publicação normal
+
+Com Docker ativo, execute na raiz:
+
+```sh
+./mvnw -Pintegration clean verify
+python3 infra/rabbitmq/configure.py
+docker compose up -d --wait postgres keycloak rabbitmq wiremock
+python3 infra/rabbitmq/verify.py
+```
+
+Encerre a versão antiga da API. No terminal com as variáveis de banco já configuradas, ajuste as do broker (exemplo com defaults locais) e inicie o novo JAR:
+
+```sh
+export CUSTOMER_RABBITMQ_HOST=localhost
+export CUSTOMER_RABBITMQ_PORT=15673
+export CUSTOMER_RABBITMQ_PASSWORD=customer_rabbitmq_local_only
+java -jar customer-service/target/customer-service-0.0.1-SNAPSHOT.jar
+```
+
+Gere token ADMIN novo no Postman. Cadastre um cliente fictício novo:
+
+```sh
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X POST http://localhost:8080/customers \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Cadastro Outbox Online","cpf":"24681035726","email":"outbox-online@example.test","status":"ACTIVE"}'
+```
+
+Esperado: 201. Se o CPF já estiver reservado, o 409 não gera evento; para repetir, use outro CPF fictício válido e ainda não reservado. No DBeaver, conectado ao `customer_db` como `customer_app`:
+
+```sql
+SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank;
+SELECT event_id, customer_id, event_type, schema_version, state, attempt_count,
+       occurred_at, next_attempt_at, last_error_code, published_at
+FROM customer_outbox ORDER BY occurred_at DESC;
+```
+
+Esperado: V1/V2 aplicadas e o novo evento PUBLISHED após o próximo ciclo. No console RabbitMQ, vhost datum, a fila `customer-notification-service.created.v1` deve ganhar uma mensagem Ready. Ainda não há consumidor de notificações, portanto não haverá processamento/ACK por uma aplicação nesta etapa. Evite Get messages com remoção/purge durante a validação; a contagem Ready pode demorar alguns segundos para atualizar.
+
+### Validação local: broker indisponível e recuperação
+
+Pare somente o broker, mantendo API e banco em execução, e faça outro cadastro com CPF novo:
+
+```sh
+docker compose stop rabbitmq
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X POST http://localhost:8080/customers \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Cadastro Outbox Pendente","cpf":"24681035807","email":"outbox-pendente@example.test","status":"ACTIVE"}'
+curl -i http://localhost:8080/actuator/health
+```
+
+Esperado: cadastro 201, health UP e evento PENDING. Confira no SQL eventId/occurredAt, contagem de tentativas e last_error_code. O horário do próximo envio avança com o backoff; as tentativas não acontecem em loop apertado. Não é necessário alterar dados no SQL para forçar retry.
+
+Inicie o broker novamente:
+
+```sh
+docker compose up -d --wait rabbitmq
+```
+
+Espere o horário de `next_attempt_at` mais o intervalo de polling (padrão: backoff até 30 s, mais o tempo de conexão/confirm). O evento deve mudar para PUBLISHED com o mesmo UUID e instante, e a mensagem chegar à fila. Reiniciar o JAR enquanto há pendência também deve preservar o registro e permitir recuperação; uma reserva interrompida pode precisar expirar por até 30 s antes de ser retomada.
+
+Os testes automatizados também simulam perda de confirmação e queda entre confirm e marcação local, situação em que uma duplicata é esperada. Deduplicação da notificação será validada na T09. A versão de agregado e o consumo de CUSTOMER_STATUS_CHANGE permanecem na T08.
+
+Referências: [confirms e returns correlacionados do Spring AMQP](https://docs.spring.io/spring-amqp/reference/3.2/amqp/template.html), [SKIP LOCKED no PostgreSQL](https://www.postgresql.org/docs/17/sql-select.html).
 
 ## Fluxo de desenvolvimento
 

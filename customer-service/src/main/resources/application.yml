@@ -14,6 +14,20 @@ spring:
   jackson:
     deserialization:
       fail-on-unknown-properties: true
+  rabbitmq:
+    host: ${CUSTOMER_RABBITMQ_HOST:localhost}
+    port: ${CUSTOMER_RABBITMQ_PORT:15673}
+    virtual-host: datum
+    username: customer_app
+    password: ${CUSTOMER_RABBITMQ_PASSWORD:customer_rabbitmq_local_only}
+    connection-timeout: 2s
+    channel-rpc-timeout: 5s
+    requested-heartbeat: 15s
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    dynamic: false
+    template:
+      mandatory: true
 
 server:
   port: ${SERVER_PORT:8080}
@@ -27,8 +41,12 @@ server:
 logging:
   level:
     org.hibernate.engine.jdbc.spi.SqlExceptionHelper: "OFF"
+    org.springframework.amqp.rabbit.connection.CachingConnectionFactory: "OFF"
 
 management:
+  health:
+    rabbit:
+      enabled: false
   endpoints:
     web:
       exposure:
@@ -48,3 +66,9 @@ customer:
     read-timeout-ms: ${SCORE_READ_TIMEOUT_MS:1000}
     max-attempts: ${SCORE_MAX_ATTEMPTS:2}
     retry-delay-ms: ${SCORE_RETRY_DELAY_MS:100}
+  outbox:
+    publisher-enabled: ${OUTBOX_PUBLISHER_ENABLED:true}
+    poll-delay-ms: ${OUTBOX_POLL_DELAY_MS:1000}
+    batch-size: ${OUTBOX_BATCH_SIZE:10}
+    confirm-timeout-ms: ${OUTBOX_CONFIRM_TIMEOUT_MS:5000}
+    lease-ms: ${OUTBOX_LEASE_MS:30000}
