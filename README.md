@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. Autenticação, mensageria e orquestração completa serão implementadas em etapas posteriores. O serviço de notificações ainda não está conectado ao banco.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local, realm e emissão de JWTs para os perfis USER/ADMIN. A validação de JWT e autorização da API serão implementadas na T04.2; os endpoints de clientes ainda não exigem token nesta etapa. Mensageria e orquestração completa permanecem pendentes. O serviço de notificações ainda não está conectado ao banco.
 
 ## Decisões da base
 
@@ -159,7 +159,7 @@ O `--rm` remove os containers das aplicações após a parada; as imagens perman
 
 ## PostgreSQL local e isolamento de bancos (T02.1)
 
-O `docker-compose.yml` contém, por enquanto, somente PostgreSQL. Execute na raiz do projeto:
+O `docker-compose.yml` contém PostgreSQL e Keycloak. Os comandos desta seção iniciam somente o PostgreSQL. Execute na raiz do projeto:
 
 ```sh
 cp .env.example .env
@@ -215,7 +215,7 @@ Para encerrar o ambiente preservando os dados:
 docker compose down
 ```
 
-Para recriar o ambiente do zero, **o comando abaixo apaga o volume e todos os dados locais deste projeto**. Use somente quando quiser descartar os dados:
+Para recriar o ambiente do zero, **o comando abaixo apaga todos os volumes do projeto, incluindo dados PostgreSQL e realm/chaves do Keycloak**. Use somente quando quiser descartar esses dados:
 
 ```sh
 docker compose down --volumes
@@ -476,6 +476,105 @@ SELECT count(*) FROM customers WHERE deleted_at IS NULL;
 SELECT status, count(*) FROM customers
 WHERE deleted_at IS NULL GROUP BY status ORDER BY status;
 ```
+
+## Keycloak e tokens de demonstracao (T04.1)
+
+Esta etapa prepara o provedor de identidade. Os endpoints da API ainda mantêm o comportamento da T03; exigir Bearer JWT, validar claims e aplicar permissões USER/ADMIN será a T04.2.
+
+### Iniciar e verificar
+
+Com Docker ativo e o `.env` existente preservado, execute na raiz:
+
+```sh
+docker compose config --quiet
+docker compose up -d --wait keycloak
+docker compose ps
+python3 infra/keycloak/verify.py
+```
+
+O Compose usa os novos valores de demonstração da `.env.example` como defaults, portanto você pode manter seu `.env` da etapa anterior. Para personalizar a porta ou as senhas, acrescente as variáveis de Keycloak ao `.env` antes da primeira inicialização do realm. Não sobrescreva as credenciais PostgreSQL já configuradas.
+
+Esperado: `keycloak` saudável (`healthy`) e a verificação concluída com todas as linhas `OK`. O script exige Python 3, OpenSSL e Docker CLI no host; não instala pacotes e não precisa que a API de clientes esteja ativa. Ele simula o formulário do Keycloak somente com os usuários de demonstração e usa Authorization Code + PKCE, com checagem de state. É um smoke test do IdP, não um cliente de autenticação para produção. O login interativo normal é feito pelo Postman, conforme abaixo.
+
+A verificação usa OpenSSL para conferir a assinatura RSA com as chaves públicas do JWKS e testa issuer, audiência, expiração, perfis, callbacks registrados, senha incorreta, assinatura adulterada, code_verifier inválido, PKCE obrigatório e direct grant desabilitado. Confere também discovery/JWKS pelo endereço interno do Docker. Não imprime tokens ou senhas, não visita os callbacks externos do Postman e não grava tokens em arquivos. O cliente de teste reproduz o envio de cookies Secure em HTTP apenas para endereços de loopback, como os navegadores fazem para localhost. Erros de login/PKCE nos logs do Keycloak durante as provas negativas são esperados; confira o resultado final do script.
+
+### Configuracao e contas locais
+
+- Imagem oficial `quay.io/keycloak/keycloak:26.8.2`, com versão fixa.
+- Realm `datum`, importado de `infra/keycloak/datum-realm.json`.
+- Cliente público `datum-local`, sem client secret, com Authorization Code e PKCE S256 obrigatório. Direct Access Grants, implicit flow e service accounts estão desabilitados.
+- Roles de negócio `USER` e `ADMIN` em `realm_access.roles` e audiência `customer-api` nos access tokens. A role ADMIN da API não concede administração do Keycloak.
+- Tokens assinados com RS256, duração de cinco minutos. O issuer padrão é `http://localhost:18090/realms/datum`.
+- Acesso publicado somente em `127.0.0.1:18090`; para mudar a porta, configure `KEYCLOAK_PORT` antes de iniciar.
+- `start-dev`, HTTP e armazenamento H2 em volume `datum_keycloak_data` são escolhas para esta demonstração local. Esse armazenamento pertence ao Keycloak e não compartilha bancos ou credenciais de clientes. Um ambiente de produção exigiria configuração própria, TLS e banco externo suportado.
+- Healthcheck em `/health/ready`, porta interna 9000, usando Bash/TCP porque a imagem não inclui curl. Essa porta não é publicada no host.
+
+| Finalidade | Usuario | Senha padrao local | Perfil/realm |
+|---|---|---|---|
+| Consulta da API | `api-user` | `user_local_only` | USER, realm datum |
+| Leitura/escrita da API | `api-admin` | `admin_local_only` | ADMIN, realm datum |
+| Console de administracao | `keycloak_admin` | `keycloak_admin_local_only` | Administrador de bootstrap, realm master |
+
+As senhas são exclusivamente de demonstração. Elas são fornecidas pelas variáveis `KEYCLOAK_DEMO_USER_PASSWORD`, `KEYCLOAK_DEMO_ADMIN_PASSWORD` e `KEYCLOAK_ADMIN_PASSWORD`, respectivamente. O JSON versionado usa placeholders de ambiente para os usuários; não contém credenciais reais.
+
+Console: [Keycloak local](http://localhost:18090/admin/). Use `keycloak_admin` para inspecionar o realm `datum`, seus usuários, roles e cliente. Esse usuário administrativo não é uma das contas de teste da API.
+
+### Obter tokens pelo Postman
+
+Na autorização de uma requisição, escolha OAuth 2.0 e configure:
+
+| Campo | Valor local |
+|---|---|
+| Tipo de grant | Authorization Code (With PKCE) |
+| Autorizar pelo navegador | Habilitado |
+| Callback | `https://oauth.pstmn.io/v1/callback` (ou `https://oauth.pstmn.io/v1/browser-callback`, se apresentado pelo Postman) |
+| Auth URL | `http://localhost:18090/realms/datum/protocol/openid-connect/auth` |
+| Access Token URL | `http://localhost:18090/realms/datum/protocol/openid-connect/token` |
+| Client ID | `datum-local` |
+| Client Secret | Vazio |
+| Scope | `openid` |
+| Metodo do desafio | SHA-256 (S256); deixe o Postman gerar o verifier |
+| Autenticacao do cliente | Credenciais no corpo, com client ID e sem secret |
+
+Solicite um novo token e autentique no formulário do Keycloak com `api-user` ou `api-admin`, usando a senha local correspondente. Ao alternar perfis, encerre a sessão anterior ou acrescente `prompt=login` aos parâmetros da requisição de autorização, para solicitar novamente as credenciais. Use o token obtido na própria requisição do Postman. A integração com os endpoints protegidos será testada na T04.2.
+
+Somente os dois callbacks exatos do Postman e `http://127.0.0.1:18091/callback` (interceptado localmente pelo smoke test) estão registrados. Não há wildcard de redirecionamento. O fluxo escolhido segue as orientações de [Keycloak](https://www.keycloak.org/securing-apps/oidc-layers) e [Postman](https://learning.postman.com/docs/use/send-requests/authorization/oauth-20).
+
+### Issuer no host e na rede Docker
+
+| Uso | Endereco padrao |
+|---|---|
+| Issuer canonico, inclusive dentro do JWT | `http://localhost:18090/realms/datum` |
+| Discovery pelo host | `http://localhost:18090/realms/datum/.well-known/openid-configuration` |
+| JWKS pelo host | `http://localhost:18090/realms/datum/protocol/openid-connect/certs` |
+| JWKS na rede Compose | `http://keycloak:8080/realms/datum/protocol/openid-connect/certs` |
+
+O hostname do Keycloak fixa o issuer público, inclusive quando discovery é consultado pelo endereço interno. Na T04.2, o Resource Server validará esse issuer e poderá usar a URL interna do JWKS quando estiver em container. A URL para buscar a chave pode diferir do issuer; o valor de `iss` continuará sendo conferido. Não será necessário desabilitar validação de assinatura ou de issuer para resolver a diferença de rede.
+
+### Reinicio, importacao e limpeza
+
+```sh
+docker compose restart keycloak
+docker compose up -d --wait keycloak
+python3 infra/keycloak/verify.py
+```
+
+O volume preserva o realm, os usuários e as chaves. A importação na inicialização ignora um realm que já existe. Alterar o JSON ou as senhas no `.env` não modifica automaticamente o realm persistido. Para encerrar somente o Keycloak preservando seus dados:
+
+```sh
+docker compose stop keycloak
+```
+
+`docker compose down` encerra os dois serviços e preserva seus volumes. Para descartar **somente os dados do Keycloak** e importar tudo novamente, os comandos abaixo removem seu realm, chaves e sessões; os tokens antigos deixarão de ser válidos:
+
+```sh
+docker compose stop keycloak
+docker compose rm -f keycloak
+docker volume rm datum_keycloak_data
+docker compose up -d --wait keycloak
+```
+
+O nome de volume acima corresponde ao projeto Compose padrão `datum`. Esse procedimento não remove o volume PostgreSQL. Execute-o apenas quando quiser reinicializar o IdP local; para ajustes preservando seu estado, use a administração do Keycloak.
 
 ## Fluxo de desenvolvimento
 

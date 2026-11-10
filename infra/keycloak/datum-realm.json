@@ -1,0 +1,95 @@
+{
+  "realm": "datum",
+  "enabled": true,
+  "displayName": "Datum - Demonstracao local",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "loginWithEmailAllowed": false,
+  "bruteForceProtected": true,
+  "defaultSignatureAlgorithm": "RS256",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 3600,
+  "roles": {
+    "realm": [
+      {"name": "USER", "description": "Consultas na API de clientes"},
+      {"name": "ADMIN", "description": "Consultas e mutacoes na API de clientes"}
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "datum-local",
+      "name": "Postman e verificacao local",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "consentRequired": false,
+      "fullScopeAllowed": true,
+      "redirectUris": [
+        "https://oauth.pstmn.io/v1/callback",
+        "https://oauth.pstmn.io/v1/browser-callback",
+        "http://127.0.0.1:18091/callback"
+      ],
+      "webOrigins": [],
+      "attributes": {"pkce.code.challenge.method": "S256"},
+      "protocolMappers": [
+        {
+          "name": "customer-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "customer-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "customer-realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "api-user",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "User",
+      "email": "api-user@example.test",
+      "requiredActions": [],
+      "realmRoles": ["USER"],
+      "credentials": [
+        {"type": "password", "value": "${KEYCLOAK_DEMO_USER_PASSWORD}", "temporary": false}
+      ]
+    },
+    {
+      "username": "api-admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "Admin",
+      "email": "api-admin@example.test",
+      "requiredActions": [],
+      "realmRoles": ["ADMIN"],
+      "credentials": [
+        {"type": "password", "value": "${KEYCLOAK_DEMO_ADMIN_PASSWORD}", "temporary": false}
+      ]
+    }
+  ]
+}
