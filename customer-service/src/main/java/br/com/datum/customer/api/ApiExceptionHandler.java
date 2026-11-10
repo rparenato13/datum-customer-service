@@ -161,6 +161,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         var body = ProblemDetail.forStatusAndDetail(status, detail);
         body.setTitle(title);
         body.setProperty("code", code);
+        if (br.com.datum.customer.observability.CorrelationContext.id() != null) {
+            body.setProperty("correlationId", br.com.datum.customer.observability.CorrelationContext.id());
+        }
         return body;
     }
 

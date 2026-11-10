@@ -1,4 +1,6 @@
 spring:
+  main:
+    banner-mode: off
   application:
     name: customer-service
   datasource:
@@ -17,6 +19,8 @@ spring:
   transaction:
     default-timeout: ${CUSTOMER_DB_TRANSACTION_TIMEOUT_SECONDS:10}s
   jpa:
+    properties:
+      hibernate.generate_statistics: true
     open-in-view: false
     hibernate:
       ddl-auto: validate
@@ -50,7 +54,19 @@ server:
 # Mensagens do driver podem incluir CPF/valores de constraints. O handler da API
 # mapeia falhas sem registrar mensagens SQL ou payloads.
 logging:
+  structured:
+    format:
+      console: logstash
+    json:
+      exclude: "stack_trace,@timestamp"
+      customizer: br.com.datum.customer.observability.UtcLogCustomizer
+      add:
+        service: ${spring.application.name}
+        environment: ${APP_ENVIRONMENT:local}
   level:
+    org.hibernate.SQL: "OFF"
+    org.hibernate.orm.jdbc.bind: "OFF"
+    org.hibernate.engine.internal.StatisticalLoggingSessionEventListener: "OFF"
     org.hibernate.engine.jdbc.spi.SqlExceptionHelper: "OFF"
     org.springframework.amqp.rabbit.connection.CachingConnectionFactory: "OFF"
 
@@ -104,3 +120,6 @@ springdoc:
     tags-sorter: alpha
   paths-to-match: /customers, /customers/**
   override-with-generic-response: false
+
+observability:
+  slow-query-threshold-ms: ${DB_SLOW_QUERY_THRESHOLD_MS:250}

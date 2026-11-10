@@ -14,6 +14,10 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
+import br.com.datum.customer.observability.CorrelationContext;
+import br.com.datum.customer.observability.Telemetry;
+import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.util.Set;
@@ -24,11 +28,17 @@ public class HttpScoreClient implements ScoreClient {
 
     private static final int MAX_BODY_BYTES = 4096;
     private static final Set<Integer> RETRY_STATUSES = Set.of(500, 502, 503, 504);
+    private final Telemetry telemetry;
     private final RestClient rest;
     private final ObjectReader json;
     private final ScoreClientProperties properties;
 
     public HttpScoreClient(RestClient rest, ObjectMapper mapper, ScoreClientProperties properties) {
+        this(rest, mapper, properties, Telemetry.standalone());
+    }
+
+    public HttpScoreClient(RestClient rest, ObjectMapper mapper, ScoreClientProperties properties, Telemetry telemetry) {
+        this.telemetry = telemetry;
         this.rest = rest;
         this.json = mapper.reader().with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
                 .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
@@ -37,12 +47,27 @@ public class HttpScoreClient implements ScoreClient {
 
     @Override
     public Score findByCpf(String cpf) {
+        long start = System.nanoTime();
+        String outcome = "success";
+        try (var scope = CorrelationContext.open(CorrelationContext.id())) {
+            try {
+                return lookup(cpf);
+            } catch (ScoreClientException ex) {
+                outcome = ex.reason().name().toLowerCase(java.util.Locale.ROOT);
+                throw ex;
+            } finally {
+                telemetry.duration("datum.score.request.duration", System.nanoTime() - start, "outcome", outcome);
+            }
+        }
+    }
+
+    private Score lookup(String cpf) {
         for (int attempt = 1; ; attempt++) {
             if (Thread.currentThread().isInterrupted()) {
                 throw failure(UNAVAILABLE, false);
             }
             try {
-                return fetch(cpf);
+                return fetch(cpf, attempt);
             } catch (ScoreClientException ex) {
                 if (!ex.retryable() || attempt >= properties.maxAttempts()) {
                     throw ex;
@@ -57,12 +82,16 @@ public class HttpScoreClient implements ScoreClient {
         }
     }
 
-    private Score fetch(String cpf) {
+    private Score fetch(String cpf, int attempt) {
         long start = System.nanoTime();
+        int[] httpStatus = {0};
+        String outcome = "success";
+        String exceptionClass = "none";
         try {
-            return rest.get().uri("/scores/{cpf}", cpf).accept(MediaType.APPLICATION_JSON)
+            return rest.get().uri("/scores/{cpf}", cpf).header(CorrelationContext.HTTP_HEADER, CorrelationContext.id()).accept(MediaType.APPLICATION_JSON)
                     .exchange((request, response) -> {
                         int status = response.getStatusCode().value();
+                        httpStatus[0] = status;
                         if (status == 404) {
                             throw failure(NOT_FOUND, false);
                         }
@@ -79,19 +108,38 @@ public class HttpScoreClient implements ScoreClient {
                         byte[] body = response.getBody().readNBytes(MAX_BODY_BYTES + 1);
                         return parse(body, cpf);
                     });
+        } catch (ScoreClientException ex) {
+            outcome = ex.reason().name().toLowerCase(java.util.Locale.ROOT);
+            exceptionClass = ex.getClass().getSimpleName();
+            throw ex;
         } catch (ResourceAccessException ex) {
+            exceptionClass = ex.getClass().getSimpleName();
             // O timeout do JDK/Spring abrange tambem a leitura do corpo. Se ele
             // fechar o stream apos os headers, a causa pode ser apenas IOException.
             boolean timedOut = (System.nanoTime() - start) / 1_000_000 >= properties.readTimeoutMs();
             for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
                 timedOut |= cause instanceof HttpTimeoutException || cause instanceof SocketTimeoutException;
             }
+            outcome = timedOut ? "timeout" : "unavailable";
             if (Thread.currentThread().isInterrupted()) {
+                outcome = "unavailable";
                 throw failure(UNAVAILABLE, false);
             }
             throw failure(timedOut ? TIMEOUT : UNAVAILABLE, !timedOut);
         } catch (org.springframework.http.InvalidMediaTypeException ex) {
+            outcome = "invalid_response";
+            exceptionClass = ex.getClass().getSimpleName();
             throw failure(INVALID_RESPONSE, false);
+        } finally {
+            long elapsed = System.nanoTime() - start;
+            telemetry.duration("datum.score.client.duration", elapsed, "outcome", outcome,
+                    "attempt", Integer.toString(attempt), "status", httpStatus[0] == 0 ? "none" : httpStatus[0] / 100 + "xx");
+            telemetry.event(LoggerFactory.getLogger(HttpScoreClient.class), "success".equals(outcome) ? Level.INFO : Level.WARN,
+                            "score.request", outcome, elapsed)
+                    .addKeyValue("dependency", "score-provider").addKeyValue("endpointPattern", "/scores/{cpf}")
+                    .addKeyValue("attempt", attempt).addKeyValue("httpStatus", httpStatus[0])
+                    .addKeyValue("timeout", "timeout".equals(outcome)).addKeyValue("exceptionClass", exceptionClass)
+                    .log("Consulta ao provedor de Score concluida.");
         }
     }
 

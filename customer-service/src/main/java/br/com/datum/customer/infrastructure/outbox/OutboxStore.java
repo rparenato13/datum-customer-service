@@ -6,6 +6,10 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
+import br.com.datum.customer.observability.CorrelationContext;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -25,10 +29,20 @@ public class OutboxStore implements CustomerCreatedEventRecorder {
     @Transactional(propagation = Propagation.MANDATORY)
     public void record(long customerId, Instant occurredAt) {
         var id = UUID.randomUUID();
+        var correlation = CorrelationContext.idOrNew();
         jdbc.update("""
-                INSERT INTO customer_outbox (event_id, customer_id, event_type, schema_version, occurred_at, payload)
-                VALUES (?, ?, 'CUSTOMER_CREATED', 1, ?, ?)
-                """, id, customerId, Timestamp.from(occurredAt), codec.encode(id, customerId, occurredAt));
+                INSERT INTO customer_outbox (event_id, customer_id, event_type, schema_version, occurred_at, payload, correlation_id)
+                VALUES (?, ?, 'CUSTOMER_CREATED', 1, ?, ?, ?)
+                """, id, customerId, Timestamp.from(occurredAt), codec.encode(id, customerId, occurredAt), correlation);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                try (var scope = CorrelationContext.open(correlation.toString())) {
+                    LoggerFactory.getLogger(OutboxStore.class).atInfo().addKeyValue("operation", "outbox.record")
+                            .addKeyValue("outcome", "committed").addKeyValue("eventId", id.toString())
+                            .addKeyValue("eventType", "CUSTOMER_CREATED").log("Evento persistido com o cadastro.");
+                }
+            }
+        });
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -47,10 +61,10 @@ public class OutboxStore implements CustomerCreatedEventRecorder {
                     locked_until = clock_timestamp() + (? * interval '1 millisecond')
                 FROM candidate c WHERE o.event_id = c.event_id
                 RETURNING o.event_id, o.customer_id, o.event_type, o.schema_version,
-                    o.occurred_at, o.payload, o.attempt_count, o.claim_token
+                    o.occurred_at, o.payload, o.attempt_count, o.claim_token, o.correlation_id
                 """, (rs, row) -> new OutboxEvent(rs.getObject("event_id", UUID.class), rs.getLong("customer_id"),
                 rs.getString("event_type"), rs.getInt("schema_version"), rs.getTimestamp("occurred_at").toInstant(),
-                rs.getString("payload"), rs.getLong("attempt_count"), rs.getObject("claim_token", UUID.class)),
+                rs.getString("payload"), rs.getLong("attempt_count"), rs.getObject("claim_token", UUID.class), rs.getObject("correlation_id", UUID.class)),
                 token, properties.leaseMs()).stream().findFirst();
     }
 

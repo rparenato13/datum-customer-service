@@ -5,13 +5,14 @@ import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.core.MessageProperties;
 
 import java.util.Set;
+import br.com.datum.customer.observability.CorrelationContext;
 
 public class StatusMessageMetadata {
     public static final String EVENTS = "datum.customer.events";
     public static final String KEY = "customer.status-change.v1";
     public static final String RETRY = "datum.customer.retry";
     public static final String REDELIVERY = "datum.customer.redelivery";
-    private static final Set<String> HEADERS = Set.of("x-retry-attempt", "x-death", "x-delivery-count", "x-acquired-count",
+    private static final Set<String> HEADERS = Set.of(CorrelationContext.MESSAGE_HEADER, "x-retry-attempt", "x-death", "x-delivery-count", "x-acquired-count",
             "x-first-death-exchange", "x-first-death-queue", "x-first-death-reason",
             "x-last-death-exchange", "x-last-death-queue", "x-last-death-reason",
             "spring_listener_return_correlation", "spring_returned_message_correlation");
@@ -23,7 +24,9 @@ public class StatusMessageMetadata {
                 || !"application/json".equals(properties.getContentType())
                 || !"UTF-8".equalsIgnoreCase(properties.getContentEncoding())
                 || properties.getReceivedDeliveryMode() != MessageDeliveryMode.PERSISTENT
-                || !HEADERS.containsAll(properties.getHeaders().keySet())) {
+                || !HEADERS.containsAll(properties.getHeaders().keySet())
+                || (properties.getHeaders().containsKey(CorrelationContext.MESSAGE_HEADER)
+                    && !CorrelationContext.valid(properties.getHeaders().get(CorrelationContext.MESSAGE_HEADER)))) {
             throw new InvalidStatusEventException();
         }
         if (EVENTS.equals(properties.getReceivedExchange()) && KEY.equals(properties.getReceivedRoutingKey())) {

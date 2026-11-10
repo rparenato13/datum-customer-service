@@ -24,6 +24,22 @@ class ConfirmedNotificationRetrySenderTest {
             new NotificationConsumerProperties(true, 10, 1000, 100));
     final CustomerCreatedEvent event = CreatedFixtures.event(123);
 
+    @Test
+    void shouldPreserveOriginalHttpCorrelationWhenRebuildingRetryProperties() {
+        String correlation = java.util.UUID.randomUUID().toString();
+        var original = CreatedFixtures.received(event, 0);
+        original.getMessageProperties().setHeader("x-correlation-id", correlation);
+        doAnswer(call -> {
+            var message = call.getArgument(2, Message.class);
+            assertEquals(correlation, message.getMessageProperties().getHeader("x-correlation-id"));
+            assertEquals(event.eventId().toString(), message.getMessageProperties().getCorrelationId());
+            assertArrayEquals(original.getBody(), message.getBody());
+            call.getArgument(3, CorrelationData.class).getFuture().complete(new CorrelationData.Confirm(true, null));
+            return null;
+        }).when(template).send(anyString(), anyString(), any(Message.class), any(CorrelationData.class));
+        assertTrue(sender.send(original, event, 1));
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {1, 2, 3})
     void shouldPreserveBodyAndIdentityAndDeriveOnlyOwnRetryDestination(int next) {
@@ -38,7 +54,7 @@ class ConfirmedNotificationRetrySenderTest {
             assertEquals(event.eventId().toString(), metadata.getMessageId());
             assertEquals(event.eventId().toString(), metadata.getCorrelationId());
             assertEquals(CustomerCreatedEvent.TYPE, metadata.getType());
-            assertEquals(java.util.Map.of("x-retry-attempt", next), metadata.getHeaders());
+            assertEquals(java.util.Map.of("x-correlation-id", event.eventId().toString(), "x-retry-attempt", next), metadata.getHeaders());
             call.getArgument(3, CorrelationData.class).getFuture().complete(new CorrelationData.Confirm(true, null));
             return null;
         }).when(template).send(eq(CreatedMessageMetadata.RETRY), eq(CustomerCreatedEvent.CONSUMER + ".retry." + next),

@@ -40,7 +40,11 @@ def free_port():
 
 
 class Environment:
-    def __init__(self):
+    def __init__(self, image_tag="t11", app_profiles=None):
+        if image_tag not in ("t11", "t12") or app_profiles not in (None, "observability"):
+            raise ValueError("Configuracao de teste nao prevista.")
+        self.image_tag = image_tag
+        self.app_profiles = app_profiles
         self.directory = tempfile.TemporaryDirectory(prefix="datum-resilience-")
         self.project = "datum-resilience-" + uuid.uuid4().hex[:10]
         self.customer = self.project + "-customer"
@@ -52,7 +56,8 @@ class Environment:
             RABBITMQ_DEFINITIONS_FILE=self.directory.name + "/definitions.json")
         for variable in ("POSTGRES_ADMIN_PASSWORD", "CUSTOMER_DB_PASSWORD", "NOTIFICATION_DB_PASSWORD", "KEYCLOAK_ADMIN_PASSWORD",
                          "KEYCLOAK_DEMO_ADMIN_PASSWORD", "KEYCLOAK_DEMO_USER_PASSWORD", "RABBITMQ_ADMIN_PASSWORD",
-                         "CUSTOMER_RABBITMQ_PASSWORD", "NOTIFICATION_RABBITMQ_PASSWORD", "STATUS_PUBLISHER_RABBITMQ_PASSWORD"):
+                         "CUSTOMER_RABBITMQ_PASSWORD", "NOTIFICATION_RABBITMQ_PASSWORD", "STATUS_PUBLISHER_RABBITMQ_PASSWORD",
+                         "NOTIFICATION_MANAGEMENT_PASSWORD"):
             self.env[variable] = "test_" + uuid.uuid4().hex
         self.arguments = ["-f", str(ROOT / "docker-compose.yml"), "--env-file", str(ROOT / ".env.example"), "-p", self.project]
         self.compose = ["docker", "compose", *self.arguments]
@@ -81,7 +86,7 @@ class Environment:
         if build:
             for service in ("customer-service", "customer-notification-service"):
                 print("Construindo imagem: " + service, flush=True)
-                self.run(["docker", "build", "-f", service + "/Dockerfile", "-t", "datum/" + service + ":t11", "."], timeout=600)
+                self.run(["docker", "build", "-f", service + "/Dockerfile", "-t", "datum/" + service + ":" + self.image_tag, "."], timeout=600)
         self.run([sys.executable, "infra/rabbitmq/configure.py", *self.arguments])
         self.run(self.compose + ["up", "-d", "--wait", "--wait-timeout", "180", "postgres", "rabbitmq", "keycloak", "wiremock"])
         self.start_app("customer")
@@ -106,12 +111,17 @@ class Environment:
                 OUTBOX_PUBLISHER_ENABLED="true", STATUS_CONSUMER_ENABLED="true", CUSTOMER_DOCS_ENABLED="false")
         else:
             values["NOTIFICATION_CONSUMER_ENABLED"] = "true"
+        if self.app_profiles:
+            values["SPRING_PROFILES_ACTIVE"] = self.app_profiles
+            values["APP_ENVIRONMENT"] = "test"
+        if service == "notification":
+            values["NOTIFICATION_MANAGEMENT_PASSWORD"] = self.env["NOTIFICATION_MANAGEMENT_PASSWORD"]
         command = ["docker", "run", "-d", "--name", name, "--label", "datum.resilience.run=" + self.project,
             "--network", self.project + "_default", "-p", "127.0.0.1:" + self.ports[service] + ":" + port]
         for variable, value in values.items():
             self.env[variable] = value
             command += ["--env", variable]
-        self.run(command + ["datum/" + image + ":t11"])
+        self.run(command + ["datum/" + image + ":" + self.image_tag])
 
     def refresh_token(self):
         issuer = "http://localhost:" + self.ports["keycloak"] + "/realms/datum"

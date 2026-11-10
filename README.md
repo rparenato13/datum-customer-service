@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. T09: consumidor de criação com inbox e notificação simulada transacionais em banco próprio, retries e DLQ. T10: Swagger UI/OpenAPI com autenticação Bearer, schemas, exemplos e respostas por operação. T11: limites de banco e suíte reproduzível de falhas distribuídas em ambiente descartável. A orquestração completa permanece pendente.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. T09: consumidor de criação com inbox e notificação simulada transacionais em banco próprio, retries e DLQ. T10: Swagger UI/OpenAPI com autenticação Bearer, schemas, exemplos e respostas por operação. T11: limites de banco e suíte reproduzível de falhas distribuídas em ambiente descartável. T12: logs JSON UTC, correlação HTTP/Score/outbox/consumidores, métricas protegidas e diagnóstico de performance. A orquestração completa permanece pendente.
 
 ## Decisões da base
 
@@ -43,7 +43,7 @@ No Linux/Windows, configure `JAVA_HOME` para o JDK 21 instalado. No Windows, use
 
 Confirme Java 21 e Maven 3.9.9 na saída do Wrapper. O arquivo `.java-version` também indica Java 21 para quem usa jEnv; ele não substitui a configuração de `JAVA_HOME`.
 
-Resultado esperado: `BUILD SUCCESS`, 269 testes rápidos aprovados (208 do customer-service e 61 do serviço de notificações) e os arquivos:
+Resultado esperado: `BUILD SUCCESS`, 297 testes rápidos aprovados (223 do customer-service e 74 do serviço de notificações) e os arquivos:
 
 - `customer-service/target/customer-service-0.0.1-SNAPSHOT.jar`
 - `customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar`
@@ -54,11 +54,11 @@ Os testes rápidos verificam saúde, resposta segura para falha interna, autenti
 ./mvnw -Pintegration clean verify
 ```
 
-Esse comando executa 269 testes rápidos e 248 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT`, 19 de Score em `CustomerScoreIT`, 29 de outbox/publicação em `CustomerOutboxIT`, 25 de consumo de status em `CustomerStatusChangeIT`, 20 de notificações em `NotificationConsumerIT`, 13 de contrato OpenAPI em `OpenApiContractIT` e oito de limites de banco em `DatabaseResilienceIT` (quatro por serviço). São **517 testes**. PostgreSQL 17.11 e RabbitMQ 4.4.0 são criados por Testcontainers. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap PostgreSQL é o mesmo de `infra/postgres/init/`, e cada aplicação conecta como seu próprio usuário (`customer_app` ou `notification_app`), sem privilégios administrativos. Não é necessário subir as dependências do Compose para a suíte Maven. O Docker precisa estar ativo para os testes de integração; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco e o broker locais não recebem os dados dos testes.
+Esse comando executa 297 testes rápidos e 251 cenários de integração: 13 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT`, 19 de Score em `CustomerScoreIT`, 31 de outbox/publicação em `CustomerOutboxIT`, 25 de consumo de status em `CustomerStatusChangeIT`, 20 de notificações em `NotificationConsumerIT`, 13 de contrato OpenAPI em `OpenApiContractIT` e oito de limites de banco em `DatabaseResilienceIT` (quatro por serviço). São **548 testes**. PostgreSQL 17.11 e RabbitMQ 4.4.0 são criados por Testcontainers. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap PostgreSQL é o mesmo de `infra/postgres/init/`, e cada aplicação conecta como seu próprio usuário (`customer_app` ou `notification_app`), sem privilégios administrativos. Não é necessário subir as dependências do Compose para a suíte Maven. O Docker precisa estar ativo para os testes de integração; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco e o broker locais não recebem os dados dos testes.
 
-Os 29 cenários de outbox verificam commit/rollback atômicos, falha na inserção do evento, CPF duplicado sem novo evento, payload/propriedades AMQP, broker parado, mandatory return, confirmação ausente/negativa, backoff persistido, evento inválido bloqueado, expiração de reserva, proteção contra confirmação por dono antigo, claims/publicações concorrentes e duplicata após queda entre confirm e atualização local. Os testes controlam o relay explicitamente para reproduzir falhas; apenas o agendamento fica desativado neles. O caminho real agendado é verificado na imagem Docker. Os 20 cenários de integração de notificações verificam transação atômica, duplicatas, concorrência, recuperação após commit sem ACK, falha de conexões, TTL, retry sem rota, DLQ e isolamento de banco/credencial. Os testes da T09 iniciam o serviço sem uma API de clientes em execução.
+Os 31 cenários de outbox verificam commit/rollback atômicos, falha na inserção do evento, CPF duplicado sem novo evento, payload/propriedades AMQP, broker parado, mandatory return, confirmação ausente/negativa, backoff persistido, evento inválido bloqueado, expiração de reserva, proteção contra confirmação por dono antigo, claims/publicações concorrentes e duplicata após queda entre confirm e atualização local. Os testes controlam o relay explicitamente para reproduzir falhas; apenas o agendamento fica desativado neles. O caminho real agendado é verificado na imagem Docker. Os 20 cenários de integração de notificações verificam transação atômica, duplicatas, concorrência, recuperação após commit sem ACK, falha de conexões, TTL, retry sem rota, DLQ e isolamento de banco/credencial. Os testes da T09 iniciam o serviço sem uma API de clientes em execução.
 
-Score acrescenta 81 cenários: 49 do adaptador HTTP, 13 da configuração e 19 da API integrada. Eles verificam validação estrita do contrato (inclusive CPF divergente, campos ausentes, tipos incorretos, duplicidade de propriedades, JSON incompleto e corpo acima de 4 KiB), contagem de tentativas, recuperação de falha transitória, timeout antes dos headers e durante o corpo, conexão recusada, redirect bloqueado, interrupção, USER/ADMIN, 401/403/400/404/502/503/504 e ausência de CPF/token nos erros e logs. A integração carrega as mesmas fixtures de `infra/wiremock/`, verifica que clientes INACTIVE continuam consultáveis e que excluídos/inexistentes não chamam o provedor. A transação do banco termina antes da chamada HTTP; Score não é persistido.
+Score possui 82 cenários: 50 do adaptador HTTP, 13 da configuração e 19 da API integrada. Eles verificam validação estrita do contrato (inclusive CPF divergente, campos ausentes, tipos incorretos, duplicidade de propriedades, JSON incompleto e corpo acima de 4 KiB), contagem de tentativas, recuperação de falha transitória, timeout antes dos headers e durante o corpo, conexão recusada, redirect bloqueado, interrupção, USER/ADMIN, 401/403/400/404/502/503/504 e ausência de CPF/token nos erros e logs. A integração carrega as mesmas fixtures de `infra/wiremock/`, verifica que clientes INACTIVE continuam consultáveis e que excluídos/inexistentes não chamam o provedor. A transação do banco termina antes da chamada HTTP; Score não é persistido.
 
 Os 48 casos de segurança cobrem todas as operações de clientes, USER sem escrita, ADMIN com leitura/escrita, 401/403, privacidade dos erros, sessão/Basic desabilitados e tokens malformados, sem assinatura, com chave/kid/algoritmo/issuer/audiência incorretos, expirados, com nbf futuro ou sem exp/sub. Roles ausentes, malformadas ou vindas de claims não autorizados não concedem acesso. As chaves privadas de teste são geradas em memória e o JWKS publica somente a chave pública.
 
@@ -83,7 +83,7 @@ Use a senha efetiva de `CUSTOMER_DB_PASSWORD` do seu `.env` e ajuste a URL se al
 
 O issuer padrão é `http://localhost:18090/realms/datum` e o JWKS é derivado desse endereço. Se alterou a porta do Keycloak, exporte `CUSTOMER_JWT_ISSUER_URI` com o issuer efetivo antes de iniciar a API; `CUSTOMER_JWT_JWK_SET_URI` pode definir separadamente o endereço para buscar as chaves. A audiência padrão é `customer-api`.
 
-Na primeira inicialização, o Flyway aplica V1 (clientes), V2 (outbox) e V3 (versão/inbox de status). Nas seguintes, valida o histórico e aplica somente migrations pendentes. O Hibernate usa `ddl-auto=validate`; divergências de schema interrompem a inicialização. O endpoint de saúde considera a conexão com o banco. O RabbitMQ não compõe esse healthcheck: seu estado é verificado separadamente, pois uma indisponibilidade do broker não impede o cadastro com evento pendente no banco.
+Na primeira inicialização, o Flyway aplica V1 (clientes), V2 (outbox), V3 (versão/inbox de status) e V4 (correlação da outbox e índice de observação). Nas seguintes, valida o histórico e aplica somente migrations pendentes. O Hibernate usa `ddl-auto=validate`; divergências de schema interrompem a inicialização. O endpoint de saúde considera a conexão com o banco. O RabbitMQ não compõe esse healthcheck: seu estado é verificado separadamente, pois uma indisponibilidade do broker não impede o cadastro com evento pendente no banco.
 
 No segundo, configure a senha efetiva de `NOTIFICATION_DB_PASSWORD` do seu `.env` (abaixo, default local). O serviço aplica sua migration em `notification_db` e começa a consumir mensagens de criação que já estiverem na fila:
 
@@ -135,8 +135,8 @@ O valor fica na variável do terminal, sem ser incluído no comando salvo no his
 Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos de build indica o contexto da raiz, necessário para acessar o POM pai e os POMs dos módulos.
 
 ```sh
-docker build -f customer-service/Dockerfile -t datum/customer-service:t11 .
-docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t11 .
+docker build -f customer-service/Dockerfile -t datum/customer-service:t12 .
+docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t12 .
 ```
 
 Cada Dockerfile tem dois estágios:
@@ -153,15 +153,15 @@ Prepare PostgreSQL/Keycloak/WireMock/RabbitMQ pelo Compose e exporte `CUSTOMER_D
 ```sh
 python3 infra/rabbitmq/configure.py
 docker compose up -d --wait postgres keycloak wiremock rabbitmq
-docker run -d --rm --name datum-customer-t11 --network datum_default --env CUSTOMER_DOCS_ENABLED --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 --env CUSTOMER_RABBITMQ_HOST=rabbitmq --env CUSTOMER_RABBITMQ_PORT=5672 --env CUSTOMER_RABBITMQ_PASSWORD -p 127.0.0.1:18080:8080 datum/customer-service:t11
-docker run -d --rm --name datum-notification-t11 --network datum_default --env NOTIFICATION_DB_URL=jdbc:postgresql://postgres:5432/notification_db --env NOTIFICATION_DB_PASSWORD --env NOTIFICATION_RABBITMQ_HOST=rabbitmq --env NOTIFICATION_RABBITMQ_PORT=5672 --env NOTIFICATION_RABBITMQ_PASSWORD -p 127.0.0.1:18081:8081 datum/customer-notification-service:t11
+docker run -d --rm --name datum-customer-t12 --network datum_default --env CUSTOMER_DOCS_ENABLED --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 --env CUSTOMER_RABBITMQ_HOST=rabbitmq --env CUSTOMER_RABBITMQ_PORT=5672 --env CUSTOMER_RABBITMQ_PASSWORD -p 127.0.0.1:18080:8080 datum/customer-service:t12
+docker run -d --rm --name datum-notification-t12 --network datum_default --env NOTIFICATION_DB_URL=jdbc:postgresql://postgres:5432/notification_db --env NOTIFICATION_DB_PASSWORD --env NOTIFICATION_RABBITMQ_HOST=rabbitmq --env NOTIFICATION_RABBITMQ_PORT=5672 --env NOTIFICATION_RABBITMQ_PASSWORD -p 127.0.0.1:18081:8081 datum/customer-notification-service:t12
 ```
 
 As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
 
 ```sh
-docker logs datum-customer-t11
-docker logs datum-notification-t11
+docker logs datum-customer-t12
+docker logs datum-notification-t12
 curl -i http://localhost:18080/actuator/health
 curl -i http://localhost:18081/actuator/health
 ```
@@ -171,14 +171,14 @@ Critério de validação: ambos respondem HTTP 200 com `{"status":"UP"}`. Se o `
 Confira o usuário dos processos:
 
 ```sh
-docker exec datum-customer-t11 id
-docker exec datum-notification-t11 id
+docker exec datum-customer-t12 id
+docker exec datum-notification-t12 id
 ```
 
 Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
 
 ```sh
-docker stop datum-customer-t11 datum-notification-t11
+docker stop datum-customer-t12 datum-notification-t12
 ```
 
 O `--rm` remove os containers das aplicações após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos. O PostgreSQL permanece ativo até `docker compose down`. Dentro da rede `datum_default`, a aplicação usa `postgres:5432`; no host, usa `localhost:15432`.
@@ -301,7 +301,7 @@ O cadastro exige `name`, `cpf`, `email` e `status`. Nome tem limite de 150 carac
 
 Os erros usam `application/problem+json` (`ProblemDetail`, RFC 9457), com `type`, `title`, `status`, `detail`, `instance` e extensão `code`. Erros de campos incluem `errors`, com `field` e `message`, sem os valores rejeitados. Códigos desta etapa: `VALIDATION_ERROR`, `INVALID_JSON`, `INVALID_REQUEST`, `CUSTOMER_NOT_FOUND`, `CPF_ALREADY_REGISTERED` e `INTERNAL_ERROR` (500, mensagem genérica). Somente a violação da constraint de CPF é convertida em 409; outras falhas de integridade não são apresentadas como CPF duplicado.
 
-A aplicação não registra payloads nem mensagens SQL de constraints, que podem conter dados pessoais. O handler de erro inesperado registra somente a classe da falha. Logs estruturados e correlação serão tratados na etapa de observabilidade.
+A aplicação não registra payloads nem mensagens SQL de constraints, que podem conter dados pessoais. O handler de erro inesperado registra somente a classe da falha. Logs JSON e correlação estão disponíveis na T12; consulte o runbook de observabilidade.
 
 O POST exige JWT ADMIN desde a T04.2. Desde a T07.2, persiste cliente e `CUSTOMER_CREATED` na mesma transação; o relay publica o evento após o commit, conforme os contratos aprovados na T06. A migration V1 permanece inalterada; a V2 cria o outbox.
 
@@ -1290,6 +1290,20 @@ infra/rabbitmq/.venv/bin/python infra/resilience/verify.py
 O ciclo inclui Score lento/fora, broker fora e reinício com outbox pendente, PostgreSQL fora, falha isolada de notificações, três retries reais até DLQ, perda entre confirm do retry e ACK, saturação, destino de DLQ sem rota e delivery-limit. Os TTLs de 5/30/120 s permanecem como aprovados; a suíte leva alguns minutos. `--scenario` permite selecionar casos e `--skip-build` reutiliza imagens da mesma revisão. O script limpa somente seus próprios containers/volumes ao final.
 
 Os contratos HTTP/eventos, backoff do outbox e idempotência permanecem os mesmos. No Score, uma conexão recusada resulta em 503; timeout de conexão/leitura resulta em 504. Falha de banco no CRUD continua 500/INTERNAL_ERROR sanitizado. Falhas permanentes não recebem retry de processamento; DLQ não possui replay automático. Após confirmação ambígua, consulte o estado antes de repetir uma intenção. O runbook distingue as provas com aplicações reais da simulação da janela protocolar confirm/ACK.
+
+## Observabilidade e diagnóstico de performance (T12)
+
+Os dois serviços possuem logs JSON com timestamp UTC e correlação. A API devolve `X-Correlation-Id`, propaga-o ao Score e o persiste na outbox. Publicação, retry, replay e consumo preservam a referência; o JSON dos eventos e a identidade AMQP continuam os mesmos. Queries são medidas sem registrar SQL/valores, e os logs permitem comparar tempo HTTP, banco e dependência externa.
+
+O perfil Spring `observability` habilita `/actuator/metrics` e `/actuator/prometheus`: ADMIN via Bearer no customer-service; conta dedicada `notification_monitor` no serviço de notificações. Health permanece público. Sem esse perfil, os endpoints de métricas ficam fora da exposição web. Há indicadores de JVM, pool, JPA, HTTP, Score, outbox, consumidores e um coletor local de snapshots das dez filas. Nenhum ID ou dado pessoal é usado como label.
+
+O [runbook T12](infra/observability/README.md) traz a validação local por etapa, autenticação, campos de log, interpretação de lentidão, snapshots de filas e exemplos de percentis PromQL. Para iniciar a verificação completa em ambiente descartável:
+
+```sh
+infra/rabbitmq/.venv/bin/python infra/observability/verify.py
+```
+
+Essa execução constrói imagens T12 e usa somente seus próprios bancos, filas, portas e credenciais. O processo de revisão/commit continua após a validação local pelo responsável pelo projeto.
 
 ## Fluxo de desenvolvimento
 

@@ -38,8 +38,8 @@ public class OutboxConfiguration {
     }
 
     @Bean
-    OutboxRelay outboxRelay(OutboxStore store, EventPublisher publisher, CustomerCreatedEventCodec codec, OutboxProperties properties) {
-        return new OutboxRelay(store, publisher, codec, properties);
+    OutboxRelay outboxRelay(OutboxStore store, EventPublisher publisher, CustomerCreatedEventCodec codec, OutboxProperties properties, br.com.datum.customer.observability.Telemetry telemetry) {
+        return new OutboxRelay(store, publisher, codec, properties, telemetry);
     }
 
     @Bean

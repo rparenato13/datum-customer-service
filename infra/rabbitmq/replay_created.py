@@ -26,7 +26,7 @@ def main():
     options, compose_arguments = parser.parse_known_args()
     identifier = str(options.event_id)
     # UUID ja convertido pelo parser; o SQL nao recebe texto arbitrario.
-    sql = ("SELECT payload FROM customer_outbox WHERE event_id = '" + identifier
+    sql = ("SELECT json_build_object('payload', payload, 'correlationId', correlation_id) FROM customer_outbox WHERE event_id = '" + identifier
            + "'::uuid AND state = 'PUBLISHED' AND event_type = 'CUSTOMER_CREATED'")
     command = ["docker", "compose", *compose_arguments, "exec", "-T", "postgres", "sh", "-ec",
         'export PGPASSWORD="$CUSTOMER_DB_PASSWORD"\n'
@@ -35,7 +35,9 @@ def main():
     result = subprocess.run(command, cwd=ROOT, capture_output=True, timeout=30)
     if result.returncode:
         raise ValueError("Consulta de leitura ao outbox indisponivel.")
-    raw = result.stdout.removesuffix(b"\n")
+    stored = json.loads(result.stdout)
+    raw = stored["payload"].encode("utf-8")
+    correlation = str(uuid.UUID(stored["correlationId"]))
     if not raw or len(raw) > 16384:
         raise ValueError("Evento PUBLISHED ausente ou fora do limite.")
     payload = json.loads(raw.decode("utf-8"))
@@ -54,7 +56,7 @@ def main():
         channel.confirm_delivery()
         channel.basic_publish(exchange="datum.customer.events", routing_key="customer.created.v1", body=raw,
             mandatory=True, properties=pika.BasicProperties(content_type="application/json", content_encoding="UTF-8",
-                delivery_mode=2, message_id=identifier, correlation_id=identifier, type="CUSTOMER_CREATED"))
+                delivery_mode=2, message_id=identifier, correlation_id=identifier, type="CUSTOMER_CREATED", headers={"x-correlation-id": correlation}))
     print("OK: replay confirmado pelo broker. eventId=" + identifier)
     print("Outbox somente consultado; confira DUPLICATE e o mesmo registro no notification_db.")
 

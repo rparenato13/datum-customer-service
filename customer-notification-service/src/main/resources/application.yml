@@ -1,4 +1,6 @@
 spring:
+  main:
+    banner-mode: off
   application:
     name: customer-notification-service
   datasource:
@@ -41,7 +43,19 @@ server:
     include-stacktrace: never
 
 logging:
+  structured:
+    format:
+      console: logstash
+    json:
+      exclude: "stack_trace,@timestamp"
+      customizer: br.com.datum.notification.observability.UtcLogCustomizer
+      add:
+        service: ${spring.application.name}
+        environment: ${APP_ENVIRONMENT:local}
   level:
+    org.hibernate.SQL: "OFF"
+    org.hibernate.orm.jdbc.bind: "OFF"
+    org.hibernate.engine.internal.StatisticalLoggingSessionEventListener: "OFF"
     org.springframework.amqp.rabbit.connection.CachingConnectionFactory: "OFF"
 
 management:
@@ -62,3 +76,6 @@ notification:
     prefetch: ${NOTIFICATION_CONSUMER_PREFETCH:10}
     recovery-delay-ms: ${NOTIFICATION_CONSUMER_RECOVERY_DELAY_MS:5000}
     confirm-timeout-ms: ${NOTIFICATION_CONSUMER_CONFIRM_TIMEOUT_MS:5000}
+
+observability:
+  slow-query-threshold-ms: ${DB_SLOW_QUERY_THRESHOLD_MS:250}

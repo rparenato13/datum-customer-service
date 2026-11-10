@@ -61,8 +61,8 @@ public class StatusChangeConfiguration {
 
     @Bean
     StatusDeliveryHandler statusDeliveryHandler(StatusChangeCodec codec, StatusMessageMetadata metadata,
-            StatusChangeService service, StatusRetrySender retry, StatusChannelRecovery recovery) {
-        return new StatusDeliveryHandler(codec, metadata, service, retry, recovery);
+            StatusChangeService service, StatusRetrySender retry, StatusChannelRecovery recovery, br.com.datum.customer.observability.Telemetry telemetry) {
+        return new StatusDeliveryHandler(codec, metadata, service, retry, recovery, telemetry);
     }
 
     @Bean

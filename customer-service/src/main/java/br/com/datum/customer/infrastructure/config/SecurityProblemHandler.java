@@ -46,6 +46,9 @@ public class SecurityProblemHandler implements AuthenticationEntryPoint, AccessD
         body.setTitle(title);
         body.setInstance(URI.create(request.getRequestURI()));
         body.setProperty("code", code);
+        if (br.com.datum.customer.observability.CorrelationContext.id() != null) {
+            body.setProperty("correlationId", br.com.datum.customer.observability.CorrelationContext.id());
+        }
         response.setStatus(status.value());
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);

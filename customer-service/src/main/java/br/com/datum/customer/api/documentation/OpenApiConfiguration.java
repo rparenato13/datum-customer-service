@@ -47,6 +47,7 @@ public class OpenApiConfiguration {
                 .addProperty("detail", new StringSchema())
                 .addProperty("instance", new StringSchema().format("uri-reference").example("/customers/123"))
                 .addProperty("code", new StringSchema().description("Código estável da falha; veja os exemplos da operação."))
+                .addProperty("correlationId", new StringSchema().format("uuid").description("Referência técnica também devolvida no header X-Correlation-Id."))
                 .addProperty("errors", new ArraySchema().items(new Schema<>().$ref("#/components/schemas/FieldError")))
                 .required(List.of("type", "title", "status", "detail", "instance", "code"));
         components.addSchemas("FieldError", fieldError).addSchemas("ApiProblem", problem);

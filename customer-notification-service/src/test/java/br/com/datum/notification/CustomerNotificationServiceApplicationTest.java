@@ -19,6 +19,13 @@ class CustomerNotificationServiceApplicationTest {
     private TestRestTemplate restTemplate;
 
     @Test
+    void shouldKeepMetricEndpointsUnexposedWithoutObservabilityProfile() {
+        var monitor = restTemplate.withBasicAuth("notification_monitor", "notification_monitor_local_only");
+        assertEquals(HttpStatus.NOT_FOUND, monitor.getForEntity("/actuator/metrics", JsonNode.class).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, monitor.getForEntity("/actuator/prometheus", JsonNode.class).getStatusCode());
+    }
+
+    @Test
     void shouldStartAndReportHealthy() {
         var response = restTemplate.getForEntity("/actuator/health", JsonNode.class);
 

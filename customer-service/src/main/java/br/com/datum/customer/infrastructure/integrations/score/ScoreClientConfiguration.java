@@ -24,11 +24,11 @@ public class ScoreClientConfiguration {
 
     @Bean
     ScoreClient scoreClient(ScoreClientProperties properties, ObjectMapper mapper,
-            @Qualifier("scoreHttpClient") HttpClient httpClient) {
+            @Qualifier("scoreHttpClient") HttpClient httpClient, br.com.datum.customer.observability.Telemetry telemetry) {
         var factory = new JdkClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(Duration.ofMillis(properties.readTimeoutMs()));
         // Cliente dedicado: nao propaga headers de autenticacao da requisicao recebida.
         var rest = RestClient.builder().baseUrl(properties.baseUrl()).requestFactory(factory).build();
-        return new HttpScoreClient(rest, mapper, properties);
+        return new HttpScoreClient(rest, mapper, properties, telemetry);
     }
 }

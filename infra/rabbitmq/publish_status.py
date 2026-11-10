@@ -76,7 +76,7 @@ def main():
         channel.basic_publish(exchange="datum.customer.events", routing_key="customer.status-change.v1",
             body=raw, mandatory=True, properties=pika.BasicProperties(content_type="application/json",
                 content_encoding="UTF-8", delivery_mode=2, message_id=payload["eventId"],
-                correlation_id=payload["eventId"], type=payload["eventType"]))
+                correlation_id=payload["eventId"], type=payload["eventType"], headers={"x-correlation-id": payload["eventId"]}))
     print("OK: envio confirmado pelo broker. eventId=" + payload["eventId"])
     print("Confira o resultado na API e na inbox; confirm do broker nao significa alteracao aplicada.")
 

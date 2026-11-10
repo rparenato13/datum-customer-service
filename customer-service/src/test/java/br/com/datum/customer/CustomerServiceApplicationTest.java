@@ -39,6 +39,12 @@ class CustomerServiceApplicationTest {
     }
 
     @Test
+    void shouldKeepMetricEndpointsUnexposedWithoutObservabilityProfile() {
+        assertEquals(HttpStatus.NOT_FOUND, restTemplate.getForEntity("/actuator/metrics", JsonNode.class).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, restTemplate.getForEntity("/actuator/prometheus", JsonNode.class).getStatusCode());
+    }
+
+    @Test
     void shouldStartAndReportHealthy() {
         var response = restTemplate.getForEntity("/actuator/health", JsonNode.class);
 

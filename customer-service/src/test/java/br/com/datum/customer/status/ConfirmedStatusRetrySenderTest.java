@@ -25,6 +25,22 @@ class ConfirmedStatusRetrySenderTest {
             new StatusConsumerProperties(true, 10, 1000, 100));
     final StatusChangeEvent event = StatusFixtures.event(123, 0, CustomerStatus.INACTIVE);
 
+    @Test
+    void shouldPreserveOriginalHttpCorrelationWhenRebuildingRetryProperties() {
+        String correlation = java.util.UUID.randomUUID().toString();
+        var original = StatusFixtures.received(event, 0);
+        original.getMessageProperties().setHeader("x-correlation-id", correlation);
+        doAnswer(call -> {
+            var message = call.getArgument(2, Message.class);
+            assertEquals(correlation, message.getMessageProperties().getHeader("x-correlation-id"));
+            assertEquals(event.eventId().toString(), message.getMessageProperties().getCorrelationId());
+            assertArrayEquals(original.getBody(), message.getBody());
+            call.getArgument(3, CorrelationData.class).getFuture().complete(new CorrelationData.Confirm(true, null));
+            return null;
+        }).when(template).send(anyString(), anyString(), any(Message.class), any(CorrelationData.class));
+        assertTrue(sender.send(original, event, 1));
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {1, 2, 3})
     void shouldPreserveBodyAndIdentityAndDeriveOnlyOwnRetryDestination(int next) {
@@ -39,7 +55,7 @@ class ConfirmedStatusRetrySenderTest {
             assertEquals(event.eventId().toString(), metadata.getMessageId());
             assertEquals(event.eventId().toString(), metadata.getCorrelationId());
             assertEquals(StatusChangeEvent.TYPE, metadata.getType());
-            assertEquals(java.util.Map.of("x-retry-attempt", next), metadata.getHeaders());
+            assertEquals(java.util.Map.of("x-correlation-id", event.eventId().toString(), "x-retry-attempt", next), metadata.getHeaders());
             call.getArgument(3, CorrelationData.class).getFuture().complete(new CorrelationData.Confirm(true, null));
             return null;
         }).when(template).send(eq(StatusMessageMetadata.RETRY), eq(StatusChangeEvent.CONSUMER + ".retry." + next),

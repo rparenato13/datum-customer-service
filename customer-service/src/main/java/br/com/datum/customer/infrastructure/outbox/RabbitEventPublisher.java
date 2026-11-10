@@ -30,6 +30,7 @@ public class RabbitEventPublisher implements EventPublisher {
         metadata.setMessageId(event.eventId().toString());
         metadata.setCorrelationId(event.eventId().toString());
         metadata.setType(event.eventType());
+        metadata.setHeader(br.com.datum.customer.observability.CorrelationContext.MESSAGE_HEADER, event.correlationId().toString());
         var correlation = new CorrelationData(event.eventId() + ":" + event.claimToken());
         try {
             template.send(CustomerCreatedEventCodec.EXCHANGE, CustomerCreatedEventCodec.ROUTING_KEY,

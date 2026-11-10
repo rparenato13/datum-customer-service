@@ -9,6 +9,7 @@ import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import java.util.UUID;
+import br.com.datum.notification.observability.CorrelationContext;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -35,6 +36,9 @@ public class ConfirmedNotificationRetrySender implements NotificationRetrySender
         outgoing.setCorrelationId(event.eventId().toString());
         outgoing.setType(CustomerCreatedEvent.TYPE);
         outgoing.setHeader("x-retry-attempt", nextAttempt);
+        Object incoming = original.getMessageProperties().getHeaders().get(CorrelationContext.MESSAGE_HEADER);
+        outgoing.setHeader(CorrelationContext.MESSAGE_HEADER,
+                CorrelationContext.valid(incoming) ? incoming : event.eventId().toString());
         var correlation = new CorrelationData(event.eventId() + ":" + nextAttempt + ":" + UUID.randomUUID());
         try {
             template.send(CreatedMessageMetadata.RETRY, CustomerCreatedEvent.CONSUMER + ".retry." + nextAttempt,

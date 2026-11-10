@@ -79,6 +79,8 @@ public class SecurityConfiguration {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/actuator/health").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/actuator/metrics", "/actuator/metrics/*", "/actuator/prometheus").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.HEAD, "/actuator/metrics", "/actuator/metrics/*", "/actuator/prometheus").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/customers", "/customers/**").hasAnyRole("USER", "ADMIN")
                         .requestMatchers(HttpMethod.HEAD, "/customers", "/customers/**").hasAnyRole("USER", "ADMIN")
                         .requestMatchers(HttpMethod.POST, "/customers").hasRole("ADMIN")

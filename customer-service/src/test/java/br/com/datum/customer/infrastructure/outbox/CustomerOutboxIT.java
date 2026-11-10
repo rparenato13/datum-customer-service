@@ -49,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
 
 @Testcontainers
+@org.springframework.test.context.ActiveProfiles("observability")
 @SecurityTestFixture
 @ExtendWith(OutputCaptureExtension.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -109,6 +110,8 @@ class CustomerOutboxIT {
         registry.add("spring.rabbitmq.password", () -> "customer_test_only");
     }
 
+    @Autowired io.micrometer.core.instrument.MeterRegistry metrics;
+    @Autowired br.com.datum.customer.observability.OutboxMetrics outboxMetrics;
     @Autowired CustomerService customers;
     @Autowired OutboxStore store;
     @Autowired OutboxRelay relay;
@@ -199,7 +202,7 @@ class CustomerOutboxIT {
         assertEquals("CUSTOMER_CREATED", message.getProps().getType());
         assertEquals(2, message.getProps().getDeliveryMode());
         var headers = message.getProps().getHeaders();
-        assertTrue(headers == null || headers.keySet().stream().allMatch(key -> key.startsWith("spring_")),
+        assertTrue(headers == null || headers.keySet().stream().allMatch(key -> key.startsWith("spring_") || key.equals("x-correlation-id")),
                 "Somente correlacao tecnica Spring e permitida nos headers: " + (headers == null ? "[]" : headers.keySet()));
         assertTrue(headers == null || !headers.containsKey("__TypeId__"));
         assertEquals(1, stored().attemptCount());
@@ -402,6 +405,48 @@ class CustomerOutboxIT {
         assertEquals("PUBLISHED", state());
         assertNotNull(receive());
         assertNotNull(jdbc.queryForObject("SELECT deleted_at FROM customers", java.sql.Timestamp.class));
+    }
+
+    @Test
+    void shouldPersistHttpCorrelationAcrossLeasesAndPublishWithoutChangingBody(CapturedOutput output) throws Exception {
+        String correlation = UUID.randomUUID().toString();
+        var headers = new org.springframework.http.HttpHeaders();
+        headers.set("X-Correlation-Id", correlation);
+        var response = http.exchange("/customers", org.springframework.http.HttpMethod.POST,
+                new org.springframework.http.HttpEntity<>(payload(), headers), JsonNode.class);
+        assertEquals(201, response.getStatusCode().value());
+        assertEquals(correlation, response.getHeaders().getFirst("X-Correlation-Id"));
+        assertEquals(correlation, jdbc.queryForObject("SELECT correlation_id::text FROM customer_outbox", String.class));
+        var first = store.claim().orElseThrow();
+        assertEquals(correlation, first.correlationId().toString());
+        jdbc.update("UPDATE customer_outbox SET locked_until = clock_timestamp() - interval '1 second'");
+        var second = store.claim().orElseThrow();
+        assertEquals(first.correlationId(), second.correlationId());
+        assertEquals(first.payload(), second.payload());
+        assertEquals(EventPublisher.Result.CONFIRMED, publisher.publish(second));
+        var delivered = receive();
+        assertEquals(correlation, delivered.getProps().getHeaders().get("x-correlation-id").toString());
+        assertEquals(second.eventId().toString(), delivered.getProps().getCorrelationId());
+        assertArrayEquals(first.payload().getBytes(StandardCharsets.UTF_8), delivered.getBody());
+        assertFalse(output.getAll().contains("outbox@example.test"));
+        assertFalse(output.getAll().contains("16899535009"));
+    }
+
+    @Test
+    void shouldObserveRealDatabasePoolJpaAndOutboxWithoutQueryingOnScrape() {
+        create();
+        outboxMetrics.refresh();
+        assertEquals(1, metrics.get("datum.outbox.pending").gauge().value());
+        assertEquals(1, metrics.get("datum.outbox.collection.up").gauge().value());
+        assertTrue(metrics.find("datum.db.query.duration").timers().stream().mapToLong(timer -> timer.count()).sum() > 0);
+        assertNotNull(metrics.find("hikaricp.connections.active").gauge());
+        assertNotNull(metrics.find("hibernate.sessions.open").functionCounter());
+        relay.runOnce();
+        outboxMetrics.refresh();
+        assertEquals(0, metrics.get("datum.outbox.pending").gauge().value());
+        assertTrue(metrics.get("datum.outbox.publish.duration").tag("outcome", "CONFIRMED").timer().count() > 0);
+        assertTrue(metrics.getMeters().stream().flatMap(m -> m.getId().getTags().stream())
+                .noneMatch(tag -> tag.getValue().contains("16899535009") || tag.getValue().contains("@example.test")));
     }
 
     private br.com.datum.customer.infrastructure.persistence.CustomerEntity create() {

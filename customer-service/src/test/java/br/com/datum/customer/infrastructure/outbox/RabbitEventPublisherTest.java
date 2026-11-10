@@ -39,7 +39,7 @@ class RabbitEventPublisherTest {
             assertEquals(event.eventId().toString(), metadata.getMessageId());
             assertEquals(event.eventId().toString(), metadata.getCorrelationId());
             assertEquals(event.eventType(), metadata.getType());
-            assertTrue(metadata.getHeaders().isEmpty());
+            assertEquals(java.util.Map.of("x-correlation-id", event.correlationId().toString()), metadata.getHeaders());
             call.getArgument(3, CorrelationData.class).getFuture().complete(new CorrelationData.Confirm(ack, "not logged"));
             return null;
         }).when(template).send(eq(CustomerCreatedEventCodec.EXCHANGE), eq(CustomerCreatedEventCodec.ROUTING_KEY), any(Message.class), any(CorrelationData.class));

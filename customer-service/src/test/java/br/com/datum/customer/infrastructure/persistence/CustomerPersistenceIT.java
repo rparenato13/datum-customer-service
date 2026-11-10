@@ -73,9 +73,30 @@ class CustomerPersistenceIT {
     TestRestTemplate http;
 
     @Test
+    void shouldUpgradePendingV3EventWithoutChangingItsIdentityOrPayload() {
+        var legacy = Flyway.configure().dataSource(flyway.getConfiguration().getDataSource())
+                .schemas("t12_legacy").defaultSchema("t12_legacy").target("3").load();
+        legacy.migrate();
+        var event = java.util.UUID.randomUUID();
+        jdbc.update("INSERT INTO t12_legacy.customers (id,name,cpf,email) VALUES (123,'Legacy','16899535009','legacy@example.test')");
+        jdbc.update("INSERT INTO t12_legacy.customer_outbox (event_id,customer_id,event_type,schema_version,occurred_at,payload) "
+                + "VALUES (?,123,'CUSTOMER_CREATED',1,now(),'original bytes')", event);
+        var upgrade = Flyway.configure().dataSource(flyway.getConfiguration().getDataSource())
+                .schemas("t12_legacy").defaultSchema("t12_legacy").load();
+        assertEquals(1, upgrade.migrate().migrationsExecuted);
+        var row = jdbc.queryForMap("SELECT event_id, correlation_id, payload, state, attempt_count FROM t12_legacy.customer_outbox");
+        assertEquals(event, row.get("event_id"));
+        assertEquals(event, row.get("correlation_id"));
+        assertEquals("original bytes", row.get("payload"));
+        assertEquals("PENDING", row.get("state"));
+        assertEquals(0L, row.get("attempt_count"));
+        assertEquals(0, upgrade.migrate().migrationsExecuted);
+    }
+
+    @Test
     void shouldMigrateOnceAndUseNonAdministrativeCredentials() {
-        assertEquals(3, flyway.info().applied().length);
-        assertEquals("3", flyway.info().current().getVersion().getVersion());
+        assertEquals(4, flyway.info().applied().length);
+        assertEquals("4", flyway.info().current().getVersion().getVersion());
         assertEquals(0, flyway.migrate().migrationsExecuted);
         assertEquals("customer_app", jdbc.queryForObject("SELECT current_user", String.class));
         assertFalse(jdbc.queryForObject("SELECT rolsuper FROM pg_roles WHERE rolname = current_user", Boolean.class));

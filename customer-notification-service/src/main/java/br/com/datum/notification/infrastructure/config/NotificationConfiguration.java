@@ -60,8 +60,8 @@ public class NotificationConfiguration {
 
     @Bean
     CreatedDeliveryHandler createdDeliveryHandler(CustomerCreatedCodec codec, CreatedMessageMetadata metadata,
-            NotificationService service, NotificationRetrySender retry, NotificationChannelRecovery recovery) {
-        return new CreatedDeliveryHandler(codec, metadata, service, retry, recovery);
+            NotificationService service, NotificationRetrySender retry, NotificationChannelRecovery recovery, br.com.datum.notification.observability.Telemetry telemetry) {
+        return new CreatedDeliveryHandler(codec, metadata, service, retry, recovery, telemetry);
     }
 
     @Bean

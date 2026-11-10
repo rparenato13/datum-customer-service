@@ -35,6 +35,7 @@ class HttpScoreClientTest {
     static final String PATH = "/scores/" + CPF;
     static final String VALID = "{\"cpf\":\"" + CPF + "\",\"score\":750,\"classification\":\"LOW_RISK\"}";
     static WireMockServer provider;
+    final io.micrometer.core.instrument.simple.SimpleMeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
     HttpClient transport;
     ScoreClient client;
 
@@ -69,12 +70,29 @@ class HttpScoreClientTest {
         var properties = new ScoreClientProperties(url, 200, timeout, attempts, delay);
         var configuration = new ScoreClientConfiguration();
         transport = configuration.scoreHttpClient(properties);
-        client = configuration.scoreClient(properties, new ObjectMapper(), transport);
+        client = configuration.scoreClient(properties, new ObjectMapper(), transport, new br.com.datum.customer.observability.Telemetry(registry, 250));
     }
 
     @AfterEach
     void release() {
         transport.close();
+    }
+
+    @Test
+    void shouldPreserveCorrelationAcrossRetriesWithoutSensitiveMetricLabels() {
+        String correlation = java.util.UUID.randomUUID().toString();
+        provider.stubFor(get(PATH).willReturn(aResponse().withStatus(503)));
+        try (var scope = br.com.datum.customer.observability.CorrelationContext.open(correlation)) {
+            assertThrows(ScoreClientException.class, () -> client.findByCpf(CPF));
+            assertEquals(correlation, br.com.datum.customer.observability.CorrelationContext.id());
+        }
+        provider.verify(2, getRequestedFor(urlEqualTo(PATH)).withHeader("X-Correlation-Id", equalTo(correlation))
+                .withoutHeader("Authorization").withoutHeader("Cookie"));
+        assertEquals(2, registry.find("datum.score.client.duration").timers().stream().mapToLong(timer -> timer.count()).sum());
+        assertEquals(1, registry.get("datum.score.request.duration").tag("outcome", "unavailable").timer().count());
+        assertTrue(registry.getMeters().stream().flatMap(m -> m.getId().getTags().stream())
+                .noneMatch(tag -> tag.getValue().contains(CPF) || tag.getValue().contains(correlation)));
+        assertNull(br.com.datum.customer.observability.CorrelationContext.id());
     }
 
     @ParameterizedTest

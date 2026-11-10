@@ -43,13 +43,15 @@ class DatabaseResilienceIT {
         registry.add("spring.datasource.username", () -> "notification_app");
         registry.add("spring.datasource.password", () -> "notification_test_only");
     }
-    @Autowired HikariDataSource pool;
+    @Autowired javax.sql.DataSource dataSource;
+    HikariDataSource pool;
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager manager;
     @Autowired TransactionTemplate transaction;
 
     @BeforeEach
-    void clean() {
+    void clean() throws Exception {
+        pool = dataSource.unwrap(HikariDataSource.class);
         jdbc.update("DELETE FROM notification_records");
         jdbc.update("DELETE FROM notification_event_inbox");
     }

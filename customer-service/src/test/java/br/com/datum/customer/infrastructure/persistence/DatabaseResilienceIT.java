@@ -45,13 +45,15 @@ class DatabaseResilienceIT {
         registry.add("spring.datasource.username", () -> "customer_app");
         registry.add("spring.datasource.password", () -> "customer_test_only");
     }
-    @Autowired HikariDataSource pool;
+    @Autowired javax.sql.DataSource dataSource;
+    HikariDataSource pool;
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager manager;
     @Autowired TransactionTemplate transaction;
 
     @BeforeEach
-    void clean() {
+    void clean() throws Exception {
+        pool = dataSource.unwrap(HikariDataSource.class);
         jdbc.update("DELETE FROM customer_event_inbox");
         jdbc.update("DELETE FROM customer_outbox");
         jdbc.update("DELETE FROM customers");
