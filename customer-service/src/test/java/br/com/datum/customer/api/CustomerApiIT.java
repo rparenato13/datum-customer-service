@@ -54,7 +54,7 @@ import static org.awaitility.Awaitility.await;
 @Testcontainers
 @ExtendWith(OutputCaptureExtension.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "customer.outbox.publisher-enabled=false")
+        properties = {"customer.outbox.publisher-enabled=false", "customer.status-consumer.enabled=false"})
 @SecurityTestFixture
 class CustomerApiIT {
 
@@ -95,6 +95,7 @@ class CustomerApiIT {
     void clearDisposableDatabase() {
         TestJwtSupport.authenticateAsAdmin(http);
         // Este banco pertence exclusivamente ao container de teste desta classe.
+        jdbc.update("DELETE FROM customer_event_inbox");
         jdbc.update("DELETE FROM customer_outbox");
         jdbc.update("DELETE FROM customers");
     }

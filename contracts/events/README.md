@@ -74,7 +74,7 @@ Os exemplos conceituais do enunciado não são apresentados como mensagens v1 co
 
 ## 3. Concorrência, ordem e exclusão lógica
 
-Foi aprovada uma versão de agregado `version` BIGINT, inicial 0, com migration posterior. A API deverá expor a versão nos DTOs de leitura e escrita para que o publicador da solicitação possa obtê-la. O campo ainda **não existe** no banco nem nas respostas atuais; sua implementação é trabalho futuro da T07/T08.
+Foi aprovada uma versão de agregado `version` BIGINT, inicial 0. Implementada na T08 pela migration V3, aparece nas respostas de cadastro/consulta/alteração/listagem/busca para que o publicador possa obtê-la; é somente de saída, não faz parte da entrada de POST/PUT. Clientes anteriores à V3 começam na versão 0.
 
 O consumidor executará, em uma transação:
 

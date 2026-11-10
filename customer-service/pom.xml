@@ -96,6 +96,13 @@
           <include>__files/*</include>
         </includes>
       </testResource>
+      <testResource>
+        <directory>../contracts/events</directory>
+        <targetPath>event-contracts</targetPath>
+        <includes>
+          <include>topology.v1.json</include>
+        </includes>
+      </testResource>
     </testResources>
     <plugins>
       <plugin>

@@ -52,7 +52,7 @@ import static org.awaitility.Awaitility.await;
 @SecurityTestFixture
 @ExtendWith(OutputCaptureExtension.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "customer.outbox.publisher-enabled=false")
+        properties = {"customer.outbox.publisher-enabled=false", "customer.status-consumer.enabled=false"})
 class CustomerOutboxIT {
     static final String QUEUE = "customer-notification-service.created.v1";
 
@@ -123,6 +123,7 @@ class CustomerOutboxIT {
 
     @BeforeEach
     void cleanDisposableResources() throws Exception {
+        jdbc.update("DELETE FROM customer_event_inbox");
         jdbc.update("DELETE FROM customer_outbox");
         jdbc.update("DELETE FROM customers");
         try (var connection = admin(); var channel = connection.createChannel()) {

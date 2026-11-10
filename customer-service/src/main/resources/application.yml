@@ -72,3 +72,8 @@ customer:
     batch-size: ${OUTBOX_BATCH_SIZE:10}
     confirm-timeout-ms: ${OUTBOX_CONFIRM_TIMEOUT_MS:5000}
     lease-ms: ${OUTBOX_LEASE_MS:30000}
+  status-consumer:
+    enabled: ${STATUS_CONSUMER_ENABLED:true}
+    prefetch: ${STATUS_CONSUMER_PREFETCH:10}
+    recovery-delay-ms: ${STATUS_CONSUMER_RECOVERY_DELAY_MS:5000}
+    confirm-timeout-ms: ${STATUS_CONSUMER_CONFIRM_TIMEOUT_MS:5000}

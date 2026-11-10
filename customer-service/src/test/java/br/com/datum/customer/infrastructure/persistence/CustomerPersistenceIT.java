@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"logging.level.org.hibernate.engine.jdbc.spi.SqlExceptionHelper=OFF",
-                "customer.outbox.publisher-enabled=false"})
+                "customer.outbox.publisher-enabled=false", "customer.status-consumer.enabled=false"})
 class CustomerPersistenceIT {
 
     @Container
@@ -74,8 +74,8 @@ class CustomerPersistenceIT {
 
     @Test
     void shouldMigrateOnceAndUseNonAdministrativeCredentials() {
-        assertEquals(2, flyway.info().applied().length);
-        assertEquals("2", flyway.info().current().getVersion().getVersion());
+        assertEquals(3, flyway.info().applied().length);
+        assertEquals("3", flyway.info().current().getVersion().getVersion());
         assertEquals(0, flyway.migrate().migrationsExecuted);
         assertEquals("customer_app", jdbc.queryForObject("SELECT current_user", String.class));
         assertFalse(jdbc.queryForObject("SELECT rolsuper FROM pg_roles WHERE rolname = current_user", Boolean.class));

@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "customer.outbox.publisher-enabled=false")
+        properties = {"customer.outbox.publisher-enabled=false", "customer.status-consumer.enabled=false"})
 @SecurityTestFixture
 class CustomerQueryIT {
 
@@ -76,6 +76,7 @@ class CustomerQueryIT {
     @BeforeEach
     void prepareDisposableDatabase() {
         TestJwtSupport.authenticateAsAdmin(http);
+        jdbc.update("DELETE FROM customer_event_inbox");
         jdbc.update("DELETE FROM customer_outbox");
         jdbc.update("DELETE FROM customers");
         available = List.of(
@@ -177,6 +178,7 @@ class CustomerQueryIT {
 
     @Test
     void shouldReturnEmptyPageForEmptyDatabase() {
+        jdbc.update("DELETE FROM customer_event_inbox");
         jdbc.update("DELETE FROM customer_outbox");
         jdbc.update("DELETE FROM customers");
         assertPage(http.getForEntity("/customers", JsonNode.class), 0, 20, List.of(), 0, 0);

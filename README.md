@@ -7,11 +7,11 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. Consumidores e orquestração completa permanecem pendentes. O serviço de notificações ainda não está conectado ao banco.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. O serviço de notificações ainda não está conectado ao banco; seu consumidor pertence à T09. A orquestração completa permanece pendente.
 
 ## Decisões da base
 
-A T06 tem **contratos aprovados pelo responsável pelo projeto em 10/11/2026**, disponíveis em [contracts/events](contracts/events/README.md). Esta etapa ainda não adiciona mensageria às aplicações.
+A T06 tem **contratos aprovados pelo responsável pelo projeto em 10/11/2026**, disponíveis em [contracts/events](contracts/events/README.md). Outbox e consumidor de status implementam esses contratos nas T07.2/T08.
 
 - Java 21 LTS: atende ao requisito Java 17+ e está disponível no ambiente de desenvolvimento.
 - Spring Boot 3.5.16: versão fixa da linha 3.5, compatível com Java 21.
@@ -43,20 +43,20 @@ No Linux/Windows, configure `JAVA_HOME` para o JDK 21 instalado. No Windows, use
 
 Confirme Java 21 e Maven 3.9.9 na saída do Wrapper. O arquivo `.java-version` também indica Java 21 para quem usa jEnv; ele não substitui a configuração de `JAVA_HOME`.
 
-Resultado esperado: `BUILD SUCCESS`, 129 testes rápidos aprovados (48 de segurança, 62 do cliente HTTP/configuração de Score, 16 do codec/publicador/agendador de outbox, dois de clientes e um de notificações) e os arquivos:
+Resultado esperado: `BUILD SUCCESS`, 194 testes rápidos aprovados (48 de segurança, 62 do cliente HTTP/configuração de Score, 16 do outbox, 65 do consumidor de status, dois de clientes e um de notificações) e os arquivos:
 
 - `customer-service/target/customer-service-0.0.1-SNAPSHOT.jar`
 - `customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar`
 
-Os testes rápidos verificam saúde, resposta segura para falha interna, autenticação/autorização e o adaptador HTTP de Score com WireMock em porta aleatória. O perfil de teste `smoke` exclui a persistência e substitui `CustomerService` por um mock somente nesses testes HTTP. A segurança permanece ativa: os JWTs são assinados com chaves exclusivas de teste, e o decoder de produção consulta um JWKS HTTP local. Não há decoder falso nem validação de assinatura desabilitada. Persistência e endpoints com banco real são verificados pelo perfil Maven `integration`, obrigatório para validar a T05.2:
+Os testes rápidos verificam saúde, resposta segura para falha interna, autenticação/autorização e o adaptador HTTP de Score com WireMock em porta aleatória. O perfil de teste `smoke` exclui a persistência e substitui `CustomerService` por um mock somente nesses testes HTTP. A segurança permanece ativa: os JWTs são assinados com chaves exclusivas de teste, e o decoder de produção consulta um JWKS HTTP local. Não há decoder falso nem validação de assinatura desabilitada. Persistência e endpoints com banco real são verificados pelo perfil Maven `integration`, obrigatório para validar os incrementos com persistência/mensageria:
 
 ```sh
 ./mvnw -Pintegration clean verify
 ```
 
-Esse comando executa 129 testes rápidos e 182 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT`, 19 de Score em `CustomerScoreIT` e 29 de outbox/publicação em `CustomerOutboxIT`. São **311 testes**. PostgreSQL 17.11 e RabbitMQ 4.4.0 são criados por Testcontainers. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap PostgreSQL é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir as dependências do Compose para a suíte Maven. O Docker precisa estar ativo para os testes de integração; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco e o broker locais não recebem os dados dos testes.
+Esse comando executa 194 testes rápidos e 207 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT`, 19 de Score em `CustomerScoreIT`, 29 de outbox/publicação em `CustomerOutboxIT` e 25 de consumo de status em `CustomerStatusChangeIT`. São **401 testes**. PostgreSQL 17.11 e RabbitMQ 4.4.0 são criados por Testcontainers. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap PostgreSQL é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir as dependências do Compose para a suíte Maven. O Docker precisa estar ativo para os testes de integração; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco e o broker locais não recebem os dados dos testes.
 
-Os 29 cenários de outbox verificam commit/rollback atômicos, falha na inserção do evento, CPF duplicado sem novo evento, payload/propriedades AMQP, broker parado, mandatory return, confirmação ausente/negativa, backoff persistido, evento inválido bloqueado, expiração de reserva, proteção contra confirmação por dono antigo, claims/publicações concorrentes e duplicata após queda entre confirm e atualização local. Os testes controlam o relay explicitamente para reproduzir falhas; apenas o agendamento fica desativado neles. O caminho real agendado é verificado na imagem Docker. Nenhum consumidor de negócio é antecipado.
+Os 29 cenários de outbox verificam commit/rollback atômicos, falha na inserção do evento, CPF duplicado sem novo evento, payload/propriedades AMQP, broker parado, mandatory return, confirmação ausente/negativa, backoff persistido, evento inválido bloqueado, expiração de reserva, proteção contra confirmação por dono antigo, claims/publicações concorrentes e duplicata após queda entre confirm e atualização local. Os testes controlam o relay explicitamente para reproduzir falhas; apenas o agendamento fica desativado neles. O caminho real agendado é verificado na imagem Docker. O consumidor de notificações continua reservado à T09.
 
 Score acrescenta 81 cenários: 49 do adaptador HTTP, 13 da configuração e 19 da API integrada. Eles verificam validação estrita do contrato (inclusive CPF divergente, campos ausentes, tipos incorretos, duplicidade de propriedades, JSON incompleto e corpo acima de 4 KiB), contagem de tentativas, recuperação de falha transitória, timeout antes dos headers e durante o corpo, conexão recusada, redirect bloqueado, interrupção, USER/ADMIN, 401/403/400/404/502/503/504 e ausência de CPF/token nos erros e logs. A integração carrega as mesmas fixtures de `infra/wiremock/`, verifica que clientes INACTIVE continuam consultáveis e que excluídos/inexistentes não chamam o provedor. A transação do banco termina antes da chamada HTTP; Score não é persistido.
 
@@ -83,7 +83,7 @@ Use a senha efetiva de `CUSTOMER_DB_PASSWORD` do seu `.env` e ajuste a URL se al
 
 O issuer padrão é `http://localhost:18090/realms/datum` e o JWKS é derivado desse endereço. Se alterou a porta do Keycloak, exporte `CUSTOMER_JWT_ISSUER_URI` com o issuer efetivo antes de iniciar a API; `CUSTOMER_JWT_JWK_SET_URI` pode definir separadamente o endereço para buscar as chaves. A audiência padrão é `customer-api`.
 
-Na primeira inicialização, o Flyway aplica `V1__create_customers.sql` e `V2__create_customer_outbox.sql`. Nas seguintes, valida o histórico e aplica somente migrations pendentes. O Hibernate usa `ddl-auto=validate`; divergências de schema interrompem a inicialização. O endpoint de saúde considera a conexão com o banco. O RabbitMQ não compõe esse healthcheck: seu estado é verificado separadamente, pois uma indisponibilidade do broker não impede o cadastro com evento pendente no banco.
+Na primeira inicialização, o Flyway aplica V1 (clientes), V2 (outbox) e V3 (versão/inbox de status). Nas seguintes, valida o histórico e aplica somente migrations pendentes. O Hibernate usa `ddl-auto=validate`; divergências de schema interrompem a inicialização. O endpoint de saúde considera a conexão com o banco. O RabbitMQ não compõe esse healthcheck: seu estado é verificado separadamente, pois uma indisponibilidade do broker não impede o cadastro com evento pendente no banco.
 
 No segundo:
 
@@ -130,7 +130,7 @@ O valor fica na variável do terminal, sem ser incluído no comando salvo no his
 Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos de build indica o contexto da raiz, necessário para acessar o POM pai e os POMs dos módulos.
 
 ```sh
-docker build -f customer-service/Dockerfile -t datum/customer-service:t07.2 .
+docker build -f customer-service/Dockerfile -t datum/customer-service:t08 .
 docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t01.2 .
 ```
 
@@ -148,14 +148,14 @@ Prepare PostgreSQL/Keycloak/WireMock/RabbitMQ pelo Compose e exporte `CUSTOMER_D
 ```sh
 python3 infra/rabbitmq/configure.py
 docker compose up -d --wait postgres keycloak wiremock rabbitmq
-docker run -d --rm --name datum-customer-t07-2 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 --env CUSTOMER_RABBITMQ_HOST=rabbitmq --env CUSTOMER_RABBITMQ_PORT=5672 --env CUSTOMER_RABBITMQ_PASSWORD -p 127.0.0.1:18080:8080 datum/customer-service:t07.2
+docker run -d --rm --name datum-customer-t08 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 --env CUSTOMER_RABBITMQ_HOST=rabbitmq --env CUSTOMER_RABBITMQ_PORT=5672 --env CUSTOMER_RABBITMQ_PASSWORD -p 127.0.0.1:18080:8080 datum/customer-service:t08
 docker run -d --rm --name datum-notification-t01-2 -p 127.0.0.1:18081:8081 datum/customer-notification-service:t01.2
 ```
 
 As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
 
 ```sh
-docker logs datum-customer-t07-2
+docker logs datum-customer-t08
 docker logs datum-notification-t01-2
 curl -i http://localhost:18080/actuator/health
 curl -i http://localhost:18081/actuator/health
@@ -166,14 +166,14 @@ Critério de validação: ambos respondem HTTP 200 com `{"status":"UP"}`. Se o `
 Confira o usuário dos processos:
 
 ```sh
-docker exec datum-customer-t07-2 id
+docker exec datum-customer-t08 id
 docker exec datum-notification-t01-2 id
 ```
 
 Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
 
 ```sh
-docker stop datum-customer-t07-2 datum-notification-t01-2
+docker stop datum-customer-t08 datum-notification-t01-2
 ```
 
 O `--rm` remove os containers das aplicações após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos. O PostgreSQL permanece ativo até `docker compose down`. Dentro da rede `datum_default`, a aplicação usa `postgres:5432`; no host, usa `localhost:15432`.
@@ -886,7 +886,7 @@ As duas portas são publicadas exclusivamente em `127.0.0.1`. A porta de console
 
 O usuário `guest` e o vhost `/` não são criados no bootstrap. Apenas a conta administrativa possui tag de administrador; contas das aplicações não recebem permissão de configurar recursos nem acesso ao console. Topic permissions impedem que `status_publisher` publique criação ou que `customer_app` publique status no exchange compartilhado. Nenhuma aplicação pode consumir a fila de outra.
 
-Os exchanges internos de retry são `direct`, conforme aprovado: neles, a ACL limita o acesso ao exchange, não a routing key. A publicação de retry pela aplicação deverá derivar a chave de seu próprio consumidor, sem aceitar destinos arbitrários, nas T08/T09. O publicador externo não pode escrever nos exchanges internos. O broker controla autenticação e roteamento; ele não valida o JSON do corpo contra o schema, responsabilidade dos produtores/consumidores.
+Os exchanges internos de retry são `direct`, conforme aprovado: neles, a ACL limita o acesso ao exchange, não a routing key. O consumidor de status deriva a chave de sua própria fila; o futuro consumidor de notificações deverá fazer o mesmo. O publicador externo não pode escrever nos exchanges internos. O broker controla autenticação e roteamento; ele não valida o JSON do corpo contra o schema, responsabilidade dos produtores/consumidores.
 
 Variáveis de porta: `RABBITMQ_AMQP_PORT` (15673) e `RABBITMQ_MANAGEMENT_PORT` (15672). Seus defaults e os quatro passwords locais constam de `.env.example`. As contas importadas pertencem ao volume persistente: alterar `.env`/arquivo gerado não é um procedimento de rotação de senhas já existentes. Uma rotação exige alteração explícita no broker e sincronização das configurações; não apague o volume para trocar uma senha. O verificador detecta credenciais/topologia divergentes.
 
@@ -1014,7 +1014,7 @@ SELECT event_id, customer_id, event_type, schema_version, state, attempt_count,
 FROM customer_outbox ORDER BY occurred_at DESC;
 ```
 
-Esperado: V1/V2 aplicadas e o novo evento PUBLISHED após o próximo ciclo. No console RabbitMQ, vhost datum, a fila `customer-notification-service.created.v1` deve ganhar uma mensagem Ready. Ainda não há consumidor de notificações, portanto não haverá processamento/ACK por uma aplicação nesta etapa. Evite Get messages com remoção/purge durante a validação; a contagem Ready pode demorar alguns segundos para atualizar.
+Esperado: V1/V2/V3 aplicadas e o novo evento PUBLISHED após o próximo ciclo. No console RabbitMQ, vhost datum, a fila `customer-notification-service.created.v1` deve ganhar uma mensagem Ready. Ainda não há consumidor de notificações, portanto não haverá processamento/ACK por uma aplicação nesta etapa. Evite Get messages com remoção/purge durante a validação; a contagem Ready pode demorar alguns segundos para atualizar.
 
 ### Validação local: broker indisponível e recuperação
 
@@ -1038,9 +1038,85 @@ docker compose up -d --wait rabbitmq
 
 Espere o horário de `next_attempt_at` mais o intervalo de polling (padrão: backoff até 30 s, mais o tempo de conexão/confirm). O evento deve mudar para PUBLISHED com o mesmo UUID e instante, e a mensagem chegar à fila. Reiniciar o JAR enquanto há pendência também deve preservar o registro e permitir recuperação; uma reserva interrompida pode precisar expirar por até 30 s antes de ser retomada.
 
-Os testes automatizados também simulam perda de confirmação e queda entre confirm e marcação local, situação em que uma duplicata é esperada. Deduplicação da notificação será validada na T09. A versão de agregado e o consumo de CUSTOMER_STATUS_CHANGE permanecem na T08.
+Os testes automatizados também simulam perda de confirmação e queda entre confirm e marcação local, situação em que uma duplicata é esperada. Deduplicação da notificação será validada na T09. A versão de agregado e o consumo de CUSTOMER_STATUS_CHANGE estão descritos na T08 abaixo.
 
 Referências: [confirms e returns correlacionados do Spring AMQP](https://docs.spring.io/spring-amqp/reference/3.2/amqp/template.html), [SKIP LOCKED no PostgreSQL](https://www.postgresql.org/docs/17/sql-select.html).
+
+## Consumo idempotente de status (T08)
+
+O `customer-service` consome exclusivamente `customer-service.status-change.v1`, usando a conta `customer_app` já provisionada. Não há endpoint HTTP para publicar eventos nem dependência do serviço de notificações. O simulador externo usa `status_publisher`, sem acesso ao banco, leitura de filas ou escrita nos exchanges internos.
+
+### Versão e resultado transacional
+
+A migration V3 acrescenta `customers.version` e `customer_event_inbox`. Clientes existentes começam na versão **0**, sem alterar seu status nem recuperar um histórico anterior. POST, GET, PUT, listagem e busca passam a devolver `version`; o campo é somente de saída, não deve ser incluído nos corpos de POST/PUT.
+
+- Uma solicitação válida precisa trazer `expectedVersion` igual à versão corrente. Aplica status, incrementa a versão e avança `updated_at`, inclusive quando o status solicitado já é o atual.
+- PUT com mudança efetiva e DELETE lógico também incrementam a versão, usando a mesma disciplina de locks. PUT sem mudança efetiva pode manter a versão. A exclusão continua independente de ACTIVE/INACTIVE.
+- Versão passada ou futura é `VERSION_CONFLICT`; cliente inexistente/excluído é `CUSTOMER_NOT_FOUND`. O serviço registra REJECTED e encaminha a mensagem para DLQ. Não espera uma versão futura tornar-se válida.
+- O inbox tem chave única `(consumer_id, event_id)` e fingerprint SHA-256 dos campos validados/normalizados. Ordem, espaços, casas fracionárias equivalentes e representação inteira equivalente não criam conflito. BIGINT não passa por double.
+- Uma duplicata já APPLIED recebe ACK sem alterar versão, status ou horários. Uma duplicata REJECTED continua para DLQ. Mesmo ID com outro conteúdo é `EVENT_ID_CONFLICT`; preserva a decisão original. Nova intenção precisa de novo ID.
+
+Atualização e resultado no inbox pertencem à mesma transação PostgreSQL. Inserção concorrente do mesmo ID aguarda o resultado anterior. Não há expiração automática da deduplicação. A tabela não possui FK para clientes, permitindo registrar rejeições de clientes inexistentes; não guarda corpo JSON, CPF, nome ou e-mail. `PROCESSING` é um estado interno da transação; só APPLIED/REJECTED devem permanecer após um processamento concluído.
+
+### ACK, retry e quarentena
+
+O listener usa bytes JSON e ACK manual, sem conversão automática de classes Java. Valida contrato fechado, limite de 16 KiB, UTF-8, IDs/tipos/datas, propriedades AMQP e origem da entrega antes de abrir a transação. Headers de retry fornecidos pela entrada de domínio são rejeitados. Dados inválidos seguem diretamente à DLQ sem acesso ao cliente.
+
+ACK ocorre depois do commit. Falha antes do commit desfaz cliente/inbox e permite nova tentativa. Se o canal cair depois do commit e antes do ACK, a reentrega consulta o resultado persistido. Essa garantia é **at-least-once**, com efeito local idempotente.
+
+Falha de processamento/transação transfere para `.retry.1`, `.retry.2` e `.retry.3`, com TTLs de 5, 30 e 120 s da topologia aprovada. O serviço mantém os bytes/identidade, deriva a routing key da sua própria fila e espera confirm positivo sem return **antes de ACK da origem**. A quarta rodada com falha vai para DLQ. Falha/ambiguidade ao transferir não confirma a origem: aguarda o intervalo de recuperação e fecha o canal, permitindo reentrega. Não usa NACK/requeue imediato em loop. Crashes podem gerar mais entregas físicas que as quatro rodadas lógicas; o delivery-limit do broker também se aplica.
+
+DLQ não tem consumidor nem replay automático. Logs próprios registram ID, código e tipo de falha, sem payload ou mensagem da exceção. Mensagens inválidas na DLQ podem conter dados indevidos; a análise é administrativa, sem exportá-las para logs. Confirm do publicador comprova aceitação pelo broker, não aplicação do status.
+
+| Variável | Padrão | Uso |
+|---|---|---|
+| `STATUS_CONSUMER_ENABLED` | true | false pausa somente este consumidor |
+| `STATUS_CONSUMER_PREFETCH` | 10 | De 1 a 100 entregas antecipadas por consumidor |
+| `STATUS_CONSUMER_RECOVERY_DELAY_MS` | 5000 | De 1000 a 30000 ms; recuperação e pausa após transferência incerta |
+| `STATUS_CONSUMER_CONFIRM_TIMEOUT_MS` | 5000 | De 100 a 5000 ms para confirmar transferência ao retry |
+
+Há um consumidor por instância. A topologia pertence ao provisionamento, com declarações automáticas desabilitadas. `OUTBOX_PUBLISHER_ENABLED=false` não pausa o consumidor de status, e `STATUS_CONSUMER_ENABLED=false` não pausa o outbox. O `.env` precisa ser exportado explicitamente quando a aplicação roda por Java/IDE.
+
+### Validar localmente, antes do commit
+
+1. Execute `./mvnw -Pintegration clean verify`. Inicie PostgreSQL, Keycloak e RabbitMQ já configurados, encerre a API antiga e inicie o novo JAR com as mesmas variáveis da T07.2. Confira V3 no histórico Flyway.
+2. No Postman, consulte um cliente existente não excluído com token USER/ADMIN: `GET http://localhost:8080/customers/7`. Use o ID real do seu ambiente e anote `status`, `version` e `updatedAt`.
+3. Prepare o publicador local (Python 3.10+, na raiz):
+
+```sh
+python3 -m venv infra/rabbitmq/.venv
+infra/rabbitmq/.venv/bin/python -m pip install -r infra/rabbitmq/requirements-test.txt
+```
+
+4. Publique com o ID e a versão **acabados de consultar**. Exemplo para cliente 7 na versão 0:
+
+```sh
+infra/rabbitmq/.venv/bin/python infra/rabbitmq/publish_status.py \
+  --customer-id 7 --expected-version 0 --status INACTIVE
+```
+
+O script valida o schema, salva o evento em `.local/rabbitmq/status-events/<eventId>.json` com permissão privada e imprime o caminho para replay. Lê porta/senha efetivas do Compose em memória; não imprime credenciais. Pode receber `--env-file`/`-p`/`-f` para selecionar o Compose. O arquivo e `.venv` são ignorados pelo Git/Docker. Se a publicação não for confirmada, preserve o arquivo e reenvie o mesmo ID.
+
+5. Consulte novamente o cliente e o inbox no DBeaver (`customer_db`, `customer_app`):
+
+```sql
+SELECT id, status, version, updated_at, deleted_at FROM customers WHERE id = 7;
+SELECT event_id, customer_id, outcome, reason_code, processed_at
+FROM customer_event_inbox ORDER BY processed_at DESC;
+```
+
+Esperado: INACTIVE, versão 1 e uma linha APPLIED; fila principal sem mensagem pendente após ACK. A contagem no console pode demorar para atualizar.
+
+6. Reenvie usando o caminho exato impresso (substitua `<eventId>`):
+
+```sh
+infra/rabbitmq/.venv/bin/python infra/rabbitmq/publish_status.py \
+  --file '.local/rabbitmq/status-events/<eventId>.json'
+```
+
+Esperado: o mesmo registro APPLIED, versão 1 e `updated_at` inalterado. O log registra DUPLICATE. Para testar conflito, publique uma **nova** solicitação com a versão antiga 0: novo ID, inbox REJECTED/VERSION_CONFLICT, cliente inalterado e mensagem na DLQ. Não repita o comando de nova solicitação para simular duplicata, pois ele gera outro ID.
+
+Os testes automatizados usam recursos descartáveis: duplicatas normalizadas e concorrentes, IDs conflitantes, versões divergentes, clientes ausentes/excluídos, corrida com PUT/DELETE, rollback integral, janela commit/ACK, JSON/metadados inválidos, TTL real, conexões PostgreSQL indisponíveis, retry sem rota e exaustão. Não altere permissões/constraints nem apague filas do seu ambiente para reproduzir essas falhas manualmente.
 
 ## Fluxo de desenvolvimento
 
