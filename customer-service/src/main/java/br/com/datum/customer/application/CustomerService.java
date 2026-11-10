@@ -27,4 +27,19 @@ public class CustomerService {
     public CustomerEntity findById(Long id) {
         return repository.findByIdAndDeletedAtIsNull(id).orElseThrow(CustomerNotFoundException::new);
     }
+
+    @Transactional
+    public CustomerEntity update(Long id, String name, String cpf, String email, CustomerStatus status) {
+        var customer = repository.findAvailableByIdForUpdate(id).orElseThrow(CustomerNotFoundException::new);
+        customer.updateDetails(name, cpf, email);
+        customer.changeStatus(status);
+        return repository.saveAndFlush(customer);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        var customer = repository.findAvailableByIdForUpdate(id).orElseThrow(CustomerNotFoundException::new);
+        customer.markDeleted();
+        repository.saveAndFlush(customer);
+    }
 }

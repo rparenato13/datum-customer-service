@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. Atualização, exclusão via API, listagem/busca/filtro, autenticação, mensageria e orquestração completa serão implementados em etapas posteriores. O serviço de notificações ainda não está conectado ao banco.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. Listagem/busca/filtro, autenticação, mensageria e orquestração completa serão implementados em etapas posteriores. O serviço de notificações ainda não está conectado ao banco.
 
 ## Decisões da base
 
@@ -46,15 +46,15 @@ Resultado esperado: `BUILD SUCCESS`, três testes rápidos aprovados (dois de cl
 - `customer-service/target/customer-service-0.0.1-SNAPSHOT.jar`
 - `customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar`
 
-Os testes rápidos inicializam servidores em portas aleatórias e verificam saúde HTTP e a resposta segura para uma falha interna simulada. No `customer-service`, o perfil de teste `smoke` exclui a infraestrutura de persistência e substitui `CustomerService` por um mock somente nesses testes. A persistência e os endpoints reais são verificados separadamente pelo perfil Maven `integration`, obrigatório para validar a T03.1:
+Os testes rápidos inicializam servidores em portas aleatórias e verificam saúde HTTP e a resposta segura para uma falha interna simulada. No `customer-service`, o perfil de teste `smoke` exclui a infraestrutura de persistência e substitui `CustomerService` por um mock somente nesses testes. A persistência e os endpoints reais são verificados separadamente pelo perfil Maven `integration`, obrigatório para validar a T03.2:
 
 ```sh
 ./mvnw -Pintegration clean verify
 ```
 
-Esse comando executa 3 testes rápidos e 41 cenários de integração: 12 de persistência em `CustomerPersistenceIT` e 29 HTTP em `CustomerApiIT`, usando Testcontainers com PostgreSQL 17.11. O bootstrap é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir o Compose para esses testes. O Docker precisa estar ativo; se estiver indisponível, os testes de integração falham, em vez de serem ignorados. O banco local do DBeaver não recebe os dados dos testes.
+Esse comando executa 3 testes rápidos e 80 cenários de integração: 12 de persistência em `CustomerPersistenceIT` e 68 HTTP em `CustomerApiIT`, usando Testcontainers com PostgreSQL 17.11. O bootstrap é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir o Compose para esses testes. O Docker precisa estar ativo; se estiver indisponível, os testes de integração falham, em vez de serem ignorados. O banco local do DBeaver não recebe os dados dos testes.
 
-Os cenários HTTP cobrem 201 e consulta do cadastro confirmado, status ACTIVE/INACTIVE, 400 para campos/JSON/IDs inválidos, 404 para inexistentes/excluídos, 409 para CPF reservado e duas requisições concorrentes disputando o mesmo CPF. Verificações de privacidade conferem que erros e logs da aplicação não expõem os valores de CPF usados nos testes. A mensagem `Falha inesperada na API. Tipo: IllegalStateException` é produzida intencionalmente pelo teste da resposta 500; confira os contadores finais para avaliar o resultado.
+Os cenários HTTP cobrem cadastro/consulta, atualização completa, repetição de PUT, exclusão lógica, 400 para campos/JSON/IDs inválidos, 404 para inexistentes/excluídos, 409 para CPF reservado e rollback integral de atualizações recusadas. Há testes de cadastro concorrente com o mesmo CPF, DELETEs simultâneos e PUT aguardando uma exclusão não confirmada: o bloqueio é observado no PostgreSQL, e o PUT retorna 404 após o commit da exclusão. Verificações de privacidade conferem que erros e logs da aplicação não expõem os valores de CPF usados nos testes. A mensagem `Falha inesperada na API. Tipo: IllegalStateException` é produzida intencionalmente pelo teste da resposta 500; confira os contadores finais para avaliar o resultado.
 
 No Java 21, o suporte de testes do Mockito pode emitir um aviso sobre carregamento dinâmico de agente. Esse aviso foi observado na validação inicial, com os dois testes aprovados; confira os contadores de falhas e o resultado final do build.
 
@@ -108,7 +108,7 @@ Execute cada comando em seu próprio terminal.
 Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos de build indica o contexto da raiz, necessário para acessar o POM pai e os POMs dos módulos.
 
 ```sh
-docker build -f customer-service/Dockerfile -t datum/customer-service:t03.1 .
+docker build -f customer-service/Dockerfile -t datum/customer-service:t03.2 .
 docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t01.2 .
 ```
 
@@ -125,14 +125,14 @@ Prepare o PostgreSQL pelo Compose e exporte `CUSTOMER_DB_PASSWORD` conforme o se
 
 ```sh
 docker compose up -d --wait postgres
-docker run -d --rm --name datum-customer-t03-1 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db -p 127.0.0.1:18080:8080 datum/customer-service:t03.1
+docker run -d --rm --name datum-customer-t03-2 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db -p 127.0.0.1:18080:8080 datum/customer-service:t03.2
 docker run -d --rm --name datum-notification-t01-2 -p 127.0.0.1:18081:8081 datum/customer-notification-service:t01.2
 ```
 
 As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
 
 ```sh
-docker logs datum-customer-t03-1
+docker logs datum-customer-t03-2
 docker logs datum-notification-t01-2
 curl -i http://localhost:18080/actuator/health
 curl -i http://localhost:18081/actuator/health
@@ -143,14 +143,14 @@ Critério de validação: ambos respondem HTTP 200 com `{"status":"UP"}`. Se o `
 Confira o usuário dos processos:
 
 ```sh
-docker exec datum-customer-t03-1 id
+docker exec datum-customer-t03-2 id
 docker exec datum-notification-t01-2 id
 ```
 
 Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
 
 ```sh
-docker stop datum-customer-t03-1 datum-notification-t01-2
+docker stop datum-customer-t03-2 datum-notification-t01-2
 ```
 
 O `--rm` remove os containers das aplicações após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos. O PostgreSQL permanece ativo até `docker compose down`. Dentro da rede `datum_default`, a aplicação usa `postgres:5432`; no host, usa `localhost:15432`.
@@ -239,7 +239,7 @@ O Flyway do `customer-service` é responsável pela tabela `customers` e pelo hi
 
 ### Decisão: exclusão lógica
 
-A escolha foi aprovada para este incremento: o futuro DELETE marcará `deleted_at`, preservando o registro. `INACTIVE` permanece um estado de negócio consultável e não significa exclusão. As consultas expostas pelo repository filtram `deleted_at IS NULL`; a verificação de CPF inclui o histórico. O repository não expõe remoção física.
+A exclusão lógica foi aprovada na T02.2 e exposta pela API na T03.2: o DELETE marca `deleted_at`, preservando o registro. `INACTIVE` permanece um estado de negócio consultável e não significa exclusão. As consultas expostas pelo repository filtram `deleted_at IS NULL`; a verificação de CPF inclui o histórico. O repository não expõe remoção física.
 
 O CPF continua reservado após a exclusão lógica. Reativação, restauração de registros excluídos e políticas de retenção não foram implementadas. A entidade JPA fica em `infrastructure/persistence`; o enum de status fica em `domain`. A API usará DTOs próprios quando for implementada.
 
@@ -314,6 +314,82 @@ FROM customers ORDER BY id;
 ```
 
 Somente o cadastro válido deve gerar registro; IDs podem apresentar intervalos por causa de tentativas de inserção rejeitadas. Para testar a API na imagem Docker, use os comandos da seção de containers e substitua a porta 8080 por 18080 nos exemplos.
+
+## Atualização e exclusão lógica (T03.2)
+
+| Operação | Sucesso | Erros previstos |
+|---|---|---|
+| `PUT /customers/{id}` | 200 com o cliente atualizado | 400 para corpo/ID inválido; 404 para inexistente/excluído; 409 para CPF de outro registro, inclusive excluído |
+| `DELETE /customers/{id}` | 204, sem corpo | 400 para ID inválido; 404 para inexistente ou já excluído |
+
+O PUT exige todos os campos `name`, `cpf`, `email` e `status`, com as mesmas validações e normalização do cadastro. Ele substitui esses dados em um cliente disponível e preserva ID e `createdAt`; não cria um registro quando o ID não existe. Alterações efetivas atualizam `updatedAt`. Repetir o mesmo PUT mantém o mesmo estado. O DTO `UpdateCustomerRequest` explicita o contrato de atualização separadamente do cadastro.
+
+Se o CPF estiver reservado, toda a atualização é revertida: nome, e-mail, status e datas anteriores são preservados. O CPF pode ser alterado para outro CPF válido e disponível; a constraint única permanece como garantia final de consistência.
+
+O DELETE preenche `deleted_at` e atualiza `updated_at`, mantendo nome, CPF, e-mail, status e data de criação. GET e PUT subsequentes retornam 404. Um novo cadastro com o CPF do registro excluído continua retornando 409. Repetir o DELETE retorna 404 e mantém a primeira data de exclusão. A exclusão é idempotente em seus efeitos, mesmo com respostas diferentes na repetição.
+
+PUT e DELETE usam transações com bloqueio de linha (`PESSIMISTIC_WRITE`) na leitura do cliente disponível. A operação concorrente sobre o mesmo registro aguarda a transação anterior; o filtro de exclusão é reavaliado após essa espera, impedindo que uma atualização restaure uma linha excluída por concorrência. GET continua como consulta sem esse bloqueio de escrita. O schema V1 permanece inalterado.
+
+O handler de erros também trata a validação conjunta de ID e corpo do PUT: falhas de campos continuam retornando `VALIDATION_ERROR` com `errors`, e IDs inválidos retornam `INVALID_REQUEST`.
+
+### Roteiro de validação local
+
+Execute `./mvnw -Pintegration clean verify`, encerre a versão anterior do serviço e inicie o novo JAR com as variáveis do banco. Use um cliente de demonstração disponível criado pelo POST da seção anterior. Os exemplos usam ID `1` e CPF `52998224725`; ajuste o ID conforme o cadastro que você está testando.
+
+Atualize o cliente para INACTIVE e consulte o resultado:
+
+```sh
+curl -i -X PUT http://localhost:8080/customers/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Cliente Atualizado","cpf":"52998224725","email":"atualizado@example.test","status":"INACTIVE"}'
+curl -i http://localhost:8080/customers/1
+```
+
+Esperado: 200 nos dois comandos, com o mesmo ID e data de criação, novos dados e `updatedAt` atualizado. `INACTIVE` continua sendo consultável. Repetir esse PUT deve manter os mesmos dados e datas.
+
+Teste validação e ID inexistente:
+
+```sh
+curl -i -X PUT http://localhost:8080/customers/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"","cpf":"123","email":"invalido","status":"ACTIVE"}'
+curl -i -X PUT http://localhost:8080/customers/9223372036854775807 \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Cliente Atualizado","cpf":"52998224725","email":"atualizado@example.test","status":"INACTIVE"}'
+```
+
+Esperado: 400 com erros de campos e 404, respectivamente. Os dados do cliente disponível devem permanecer iguais após o PUT inválido.
+
+Para testar conflito, cadastre outro cliente fictício e tente usar seu CPF no primeiro:
+
+```sh
+curl -i -X POST http://localhost:8080/customers \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Outro Cliente","cpf":"11144477735","email":"outro@example.test","status":"ACTIVE"}'
+curl -i -X PUT http://localhost:8080/customers/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Alteracao Recusada","cpf":"11144477735","email":"recusado@example.test","status":"ACTIVE"}'
+curl -i http://localhost:8080/customers/1
+```
+
+Esperado: 201 para o segundo cadastro (ou 409 se esse CPF já estiver reservado), 409 para o PUT e 200 no GET com os dados anteriores, sem alteração parcial.
+
+Por último, exclua logicamente o primeiro cliente:
+
+```sh
+curl -i -X DELETE http://localhost:8080/customers/1
+curl -i http://localhost:8080/customers/1
+curl -i -X DELETE http://localhost:8080/customers/1
+```
+
+Esperado: 204 sem corpo, 404 e 404. Repetir o PUT válido para esse ID também deve retornar 404. No DBeaver, confira que a linha continua presente com status INACTIVE e `deleted_at` preenchido:
+
+```sql
+SELECT id, name, status, created_at, updated_at, deleted_at
+FROM customers WHERE id = 1;
+```
+
+Os comandos de exclusão deste roteiro preservam as linhas, mas retiram os clientes da API. O CPF continua reservado e não há endpoint de restauração implementado.
 
 ## Fluxo de desenvolvimento
 

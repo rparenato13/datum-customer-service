@@ -12,6 +12,8 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.FieldError;
+import org.springframework.validation.method.ParameterErrors;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -20,6 +22,7 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 
 @RestControllerAdvice
@@ -48,13 +51,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        var body = problem(HttpStatus.BAD_REQUEST, "Dados inválidos",
-                "Revise os campos informados.", "VALIDATION_ERROR");
-        body.setProperty("errors", ex.getBindingResult().getFieldErrors().stream()
-                .map(error -> Map.of("field", error.getField(), "message", error.getDefaultMessage()))
-                .distinct().sorted(Comparator.comparing(error -> error.get("field")))
-                .toList());
-        return handleExceptionInternal(ex, body, headers, status, request);
+        return handleExceptionInternal(ex, invalidFields(ex.getBindingResult().getFieldErrors()), headers, status, request);
     }
 
     @Override
@@ -74,7 +71,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleHandlerMethodValidationException(HandlerMethodValidationException ex,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        return handleExceptionInternal(ex, invalidId(), headers, status, request);
+        if (ex.isForReturnValue()) {
+            return unexpected(ex, request);
+        }
+        // PUT valida ID e corpo juntos; o Spring pode entregar erros do DTO aqui.
+        var fields = ex.getAllValidationResults().stream()
+                .filter(ParameterErrors.class::isInstance)
+                .map(ParameterErrors.class::cast)
+                .flatMap(errors -> errors.getFieldErrors().stream()).toList();
+        return handleExceptionInternal(ex, fields.isEmpty() ? invalidId() : invalidFields(fields), headers, status, request);
     }
 
     @ExceptionHandler(Exception.class)
@@ -88,6 +93,16 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private ProblemDetail invalidId() {
         return problem(HttpStatus.BAD_REQUEST, "Identificador inválido",
                 "O identificador deve ser um número inteiro positivo.", "INVALID_REQUEST");
+    }
+
+    private ProblemDetail invalidFields(List<FieldError> errors) {
+        var body = problem(HttpStatus.BAD_REQUEST, "Dados inválidos",
+                "Revise os campos informados.", "VALIDATION_ERROR");
+        body.setProperty("errors", errors.stream()
+                .map(error -> Map.of("field", error.getField(), "message", error.getDefaultMessage()))
+                .distinct().sorted(Comparator.comparing(error -> error.get("field")))
+                .toList());
+        return body;
     }
 
     private ProblemDetail problem(HttpStatus status, String title, String detail, String code) {

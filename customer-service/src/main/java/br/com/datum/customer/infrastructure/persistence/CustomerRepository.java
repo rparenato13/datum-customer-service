@@ -1,8 +1,12 @@
 package br.com.datum.customer.infrastructure.persistence;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
@@ -14,6 +18,11 @@ public interface CustomerRepository extends Repository<CustomerEntity, Long> {
     CustomerEntity saveAndFlush(CustomerEntity customer);
 
     Optional<CustomerEntity> findByIdAndDeletedAtIsNull(Long id);
+
+    // Serializa PUT/DELETE do mesmo cliente; o filtro é reavaliado após esperar o lock.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select customer from CustomerEntity customer where customer.id = :id and customer.deletedAt is null")
+    Optional<CustomerEntity> findAvailableByIdForUpdate(@Param("id") Long id);
 
     Page<CustomerEntity> findAllByDeletedAtIsNull(Pageable pageable);
 
