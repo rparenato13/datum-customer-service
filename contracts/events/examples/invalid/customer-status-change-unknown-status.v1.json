@@ -1,0 +1,9 @@
+{
+  "eventId": "cbca5352-22ad-48f2-aaf2-704735bc7737",
+  "eventType": "CUSTOMER_STATUS_CHANGE",
+  "schemaVersion": 1,
+  "occurredAt": "2026-11-10T03:01:00Z",
+  "customerId": 123,
+  "status": "BLOCKED",
+  "expectedVersion": 0
+}

@@ -11,6 +11,8 @@ Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações
 
 ## Decisões da base
 
+A T06 tem **contratos aprovados pelo responsável pelo projeto em 10/11/2026**, disponíveis em [contracts/events](contracts/events/README.md). Esta etapa ainda não adiciona mensageria às aplicações.
+
 - Java 21 LTS: atende ao requisito Java 17+ e está disponível no ambiente de desenvolvimento.
 - Spring Boot 3.5.16: versão fixa da linha 3.5, compatível com Java 21.
 - Maven 3.9.9, fixado pelo Maven Wrapper: permite reproduzir o build sem depender da versão do Maven instalada na máquina.
@@ -293,7 +295,7 @@ Os erros usam `application/problem+json` (`ProblemDetail`, RFC 9457), com `type`
 
 A aplicação não registra payloads nem mensagens SQL de constraints, que podem conter dados pessoais. O handler de erro inesperado registra somente a classe da falha. Logs estruturados e correlação serão tratados na etapa de observabilidade.
 
-O POST persiste o cliente e, desde a T04.2, exige JWT com perfil ADMIN. A publicação de `CUSTOMER_CREATED` será acrescentada na etapa de mensageria, após a aprovação dos contratos. Não houve alteração da migration V1.
+O POST persiste o cliente e, desde a T04.2, exige JWT com perfil ADMIN. A publicação de `CUSTOMER_CREATED` será acrescentada na etapa de mensageria, conforme os contratos aprovados na T06. Não houve alteração da migration V1.
 
 ### Roteiro de validação local
 
@@ -819,6 +821,22 @@ docker compose up -d --wait wiremock
 ```
 
 O CRUD e o healthcheck não dependem de Score e continuam operando quando o provedor está fora do ar. Esta etapa não altera migrations, CPF reservado ou regras de exclusão lógica, nem publica eventos.
+
+## Contratos de eventos aprovados (T06)
+
+O documento aprovado está em [contracts/events/README.md](contracts/events/README.md), com schemas JSON v1, exemplos válidos/inválidos, topologia e políticas de publicação, concorrência, idempotência, ACK, retry e DLQ. Os contratos compartilhados ficam fora de `docs/`, que continua ignorado pelo Git.
+
+**Aprovado explicitamente em 10/11/2026:** criação com payload mínimo; solicitação de status com `expectedVersion`; exchange de domínio topic; filas quorum próprias por consumidor; três rodadas de retry (5 s, 30 s, 120 s), seguidas de DLQ. Versionar o cliente e expor sua versão na API será uma mudança dos próximos incrementos.
+
+Para validar os contratos isoladamente (Python 3.10+):
+
+```sh
+python3 -m venv contracts/events/.venv
+contracts/events/.venv/bin/python -m pip install -r contracts/events/requirements.txt
+contracts/events/.venv/bin/python contracts/events/verify.py
+```
+
+O ambiente `.venv` é ignorado pelo Git. A instalação inicial baixa dependências; a verificação seguinte é offline. Ela não inicia broker, publica mensagens, modifica dados nem executa produtores/consumidores. O checkpoint da T06 foi aprovado; os testes com broker e a implementação permanecem nas etapas seguintes.
 
 ## Fluxo de desenvolvimento
 

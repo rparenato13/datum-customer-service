@@ -17,3 +17,7 @@
 
 # Logs locais
 *.log
+
+# Ambiente isolado da validacao dos contratos
+**/.venv/
+**/__pycache__/

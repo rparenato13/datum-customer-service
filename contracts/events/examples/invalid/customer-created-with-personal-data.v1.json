@@ -1,0 +1,8 @@
+{
+  "eventId": "7ba85b17-7d33-4d17-9101-569a362239f2",
+  "eventType": "CUSTOMER_CREATED",
+  "schemaVersion": 1,
+  "occurredAt": "2026-11-10T03:00:00Z",
+  "customerId": 123,
+  "email": "nao-publicar@example.test"
+}

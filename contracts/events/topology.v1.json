@@ -1,0 +1,68 @@
+{
+  "proposalStatus": "APPROVED",
+  "approvalDate": "2026-11-10",
+  "approvalSource": "explicit-user-approval",
+  "contractVersion": 1,
+  "vhost": "datum",
+  "exchanges": [
+    {"name": "datum.customer.events", "type": "topic", "durable": true},
+    {"name": "datum.customer.retry", "type": "direct", "durable": true},
+    {"name": "datum.customer.redelivery", "type": "direct", "durable": true},
+    {"name": "datum.customer.dead", "type": "direct", "durable": true}
+  ],
+  "queueDefaults": {
+    "type": "quorum",
+    "durable": true,
+    "exclusive": false,
+    "autoDelete": false,
+    "maxLength": 10000,
+    "maxLengthBytes": 67108864,
+    "overflow": "reject-publish"
+  },
+  "publication": {
+    "contentType": "application/json",
+    "contentEncoding": "UTF-8",
+    "deliveryMode": 2,
+    "mandatory": true,
+    "publisherConfirms": true,
+    "confirmTimeoutMs": 5000,
+    "maxBodyBytes": 16384
+  },
+  "mainQueuePolicy": {
+    "deadLetterExchange": "datum.customer.dead",
+    "deadLetterStrategy": "at-least-once",
+    "deliveryLimit": 5
+  },
+  "retryQueuePolicy": {
+    "deadLetterExchange": "datum.customer.redelivery",
+    "deadLetterStrategy": "at-least-once"
+  },
+  "consumers": [
+    {
+      "id": "customer-notification-service.created.v1",
+      "producer": "customer-service.outbox",
+      "eventType": "CUSTOMER_CREATED",
+      "routingKey": "customer.created.v1",
+      "queue": "customer-notification-service.created.v1",
+      "deadQueue": "customer-notification-service.created.v1.dlq",
+      "retries": [
+        {"queue": "customer-notification-service.created.v1.retry.1", "routingKey": "customer-notification-service.created.v1.retry.1", "ttlMs": 5000},
+        {"queue": "customer-notification-service.created.v1.retry.2", "routingKey": "customer-notification-service.created.v1.retry.2", "ttlMs": 30000},
+        {"queue": "customer-notification-service.created.v1.retry.3", "routingKey": "customer-notification-service.created.v1.retry.3", "ttlMs": 120000}
+      ]
+    },
+    {
+      "id": "customer-service.status-change.v1",
+      "producer": "status-publisher",
+      "eventType": "CUSTOMER_STATUS_CHANGE",
+      "routingKey": "customer.status-change.v1",
+      "queue": "customer-service.status-change.v1",
+      "deadQueue": "customer-service.status-change.v1.dlq",
+      "retries": [
+        {"queue": "customer-service.status-change.v1.retry.1", "routingKey": "customer-service.status-change.v1.retry.1", "ttlMs": 5000},
+        {"queue": "customer-service.status-change.v1.retry.2", "routingKey": "customer-service.status-change.v1.retry.2", "ttlMs": 30000},
+        {"queue": "customer-service.status-change.v1.retry.3", "routingKey": "customer-service.status-change.v1.retry.3", "ttlMs": 120000}
+      ]
+    }
+  ]
+}
