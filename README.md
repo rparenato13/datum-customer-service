@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. T09: consumidor de criação com inbox e notificação simulada transacionais em banco próprio, retries e DLQ. A orquestração completa permanece pendente.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. T09: consumidor de criação com inbox e notificação simulada transacionais em banco próprio, retries e DLQ. T10: Swagger UI/OpenAPI com autenticação Bearer, schemas, exemplos e respostas por operação. A orquestração completa permanece pendente.
 
 ## Decisões da base
 
@@ -43,7 +43,7 @@ No Linux/Windows, configure `JAVA_HOME` para o JDK 21 instalado. No Windows, use
 
 Confirme Java 21 e Maven 3.9.9 na saída do Wrapper. O arquivo `.java-version` também indica Java 21 para quem usa jEnv; ele não substitui a configuração de `JAVA_HOME`.
 
-Resultado esperado: `BUILD SUCCESS`, 254 testes rápidos aprovados (193 do customer-service e 61 do serviço de notificações) e os arquivos:
+Resultado esperado: `BUILD SUCCESS`, 269 testes rápidos aprovados (208 do customer-service e 61 do serviço de notificações) e os arquivos:
 
 - `customer-service/target/customer-service-0.0.1-SNAPSHOT.jar`
 - `customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar`
@@ -54,7 +54,7 @@ Os testes rápidos verificam saúde, resposta segura para falha interna, autenti
 ./mvnw -Pintegration clean verify
 ```
 
-Esse comando executa 254 testes rápidos e 227 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT`, 19 de Score em `CustomerScoreIT`, 29 de outbox/publicação em `CustomerOutboxIT`, 25 de consumo de status em `CustomerStatusChangeIT` e 20 de notificações em `NotificationConsumerIT`. São **481 testes**. PostgreSQL 17.11 e RabbitMQ 4.4.0 são criados por Testcontainers. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap PostgreSQL é o mesmo de `infra/postgres/init/`, e cada aplicação conecta como seu próprio usuário (`customer_app` ou `notification_app`), sem privilégios administrativos. Não é necessário subir as dependências do Compose para a suíte Maven. O Docker precisa estar ativo para os testes de integração; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco e o broker locais não recebem os dados dos testes.
+Esse comando executa 269 testes rápidos e 240 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT`, 19 de Score em `CustomerScoreIT`, 29 de outbox/publicação em `CustomerOutboxIT`, 25 de consumo de status em `CustomerStatusChangeIT`, 20 de notificações em `NotificationConsumerIT` e 13 de contrato OpenAPI em `OpenApiContractIT`. São **509 testes**. PostgreSQL 17.11 e RabbitMQ 4.4.0 são criados por Testcontainers. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap PostgreSQL é o mesmo de `infra/postgres/init/`, e cada aplicação conecta como seu próprio usuário (`customer_app` ou `notification_app`), sem privilégios administrativos. Não é necessário subir as dependências do Compose para a suíte Maven. O Docker precisa estar ativo para os testes de integração; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco e o broker locais não recebem os dados dos testes.
 
 Os 29 cenários de outbox verificam commit/rollback atômicos, falha na inserção do evento, CPF duplicado sem novo evento, payload/propriedades AMQP, broker parado, mandatory return, confirmação ausente/negativa, backoff persistido, evento inválido bloqueado, expiração de reserva, proteção contra confirmação por dono antigo, claims/publicações concorrentes e duplicata após queda entre confirm e atualização local. Os testes controlam o relay explicitamente para reproduzir falhas; apenas o agendamento fica desativado neles. O caminho real agendado é verificado na imagem Docker. Os 20 cenários de integração de notificações verificam transação atômica, duplicatas, concorrência, recuperação após commit sem ACK, falha de conexões, TTL, retry sem rota, DLQ e isolamento de banco/credencial. Os testes da T09 iniciam o serviço sem uma API de clientes em execução.
 
@@ -135,7 +135,7 @@ O valor fica na variável do terminal, sem ser incluído no comando salvo no his
 Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos de build indica o contexto da raiz, necessário para acessar o POM pai e os POMs dos módulos.
 
 ```sh
-docker build -f customer-service/Dockerfile -t datum/customer-service:t08 .
+docker build -f customer-service/Dockerfile -t datum/customer-service:t10 .
 docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t09 .
 ```
 
@@ -153,14 +153,14 @@ Prepare PostgreSQL/Keycloak/WireMock/RabbitMQ pelo Compose e exporte `CUSTOMER_D
 ```sh
 python3 infra/rabbitmq/configure.py
 docker compose up -d --wait postgres keycloak wiremock rabbitmq
-docker run -d --rm --name datum-customer-t08 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 --env CUSTOMER_RABBITMQ_HOST=rabbitmq --env CUSTOMER_RABBITMQ_PORT=5672 --env CUSTOMER_RABBITMQ_PASSWORD -p 127.0.0.1:18080:8080 datum/customer-service:t08
+docker run -d --rm --name datum-customer-t10 --network datum_default --env CUSTOMER_DOCS_ENABLED --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 --env CUSTOMER_RABBITMQ_HOST=rabbitmq --env CUSTOMER_RABBITMQ_PORT=5672 --env CUSTOMER_RABBITMQ_PASSWORD -p 127.0.0.1:18080:8080 datum/customer-service:t10
 docker run -d --rm --name datum-notification-t09 --network datum_default --env NOTIFICATION_DB_URL=jdbc:postgresql://postgres:5432/notification_db --env NOTIFICATION_DB_PASSWORD --env NOTIFICATION_RABBITMQ_HOST=rabbitmq --env NOTIFICATION_RABBITMQ_PORT=5672 --env NOTIFICATION_RABBITMQ_PASSWORD -p 127.0.0.1:18081:8081 datum/customer-notification-service:t09
 ```
 
 As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
 
 ```sh
-docker logs datum-customer-t08
+docker logs datum-customer-t10
 docker logs datum-notification-t09
 curl -i http://localhost:18080/actuator/health
 curl -i http://localhost:18081/actuator/health
@@ -171,14 +171,14 @@ Critério de validação: ambos respondem HTTP 200 com `{"status":"UP"}`. Se o `
 Confira o usuário dos processos:
 
 ```sh
-docker exec datum-customer-t08 id
+docker exec datum-customer-t10 id
 docker exec datum-notification-t09 id
 ```
 
 Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
 
 ```sh
-docker stop datum-customer-t08 datum-notification-t09
+docker stop datum-customer-t10 datum-notification-t09
 ```
 
 O `--rm` remove os containers das aplicações após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos. O PostgreSQL permanece ativo até `docker compose down`. Dentro da rede `datum_default`, a aplicação usa `postgres:5432`; no host, usa `localhost:15432`.
@@ -1209,6 +1209,61 @@ O script é uma ferramenta do lado produtor: consulta **somente** um evento CUST
 Esperado: confirm do broker e log `code=DUPLICATE`; o registro de notificação, seu ID e seus horários permanecem iguais. Repita após encerrar/iniciar o JAR de notificações: o resultado deve ser o mesmo. Esse replay explícito parte de evento já publicado, sem retirar mensagens da DLQ.
 
 5. Para comprovar independência, pare somente o JAR de notificações e cadastre um cliente fictício novo pela API com token ADMIN, usando CPF válido ainda não reservado. Esperado: 201, outbox PUBLISHED e evento pendente na fila de criação. Inicie notificações novamente: deve registrar o evento sem alterar o cliente. Evite limpar tabelas/filas, pois elas preservam o histórico para as próximas etapas.
+
+## Swagger UI e OpenAPI (T10)
+
+O `customer-service` usa `springdoc-openapi-starter-webmvc-ui` **2.10.0**, fixado no POM e compatível com Spring Boot 3.5 pela [matriz oficial](https://springdoc.org/v2/). O documento é OpenAPI 3.0 e gerado a partir dos controllers/DTOs, com respostas e exemplos explícitos por operação. A T10 não acrescenta migrations nem altera os contratos HTTP de negócio. O serviço de notificações continua somente com Actuator e processamento assíncrono.
+
+| Recurso | Execução Java | Execução Docker documentada |
+|---|---|---|
+| Interface | http://localhost:8080/swagger-ui/index.html | http://localhost:18080/swagger-ui/index.html |
+| OpenAPI JSON | http://localhost:8080/v3/api-docs | http://localhost:18080/v3/api-docs |
+| OpenAPI YAML | http://localhost:8080/v3/api-docs.yaml | http://localhost:18080/v3/api-docs.yaml |
+
+`/swagger-ui.html` redireciona para a interface. Com a documentação habilitada, seus GET/HEAD são públicos para a demonstração local. Os endpoints de clientes continuam exigindo JWT/roles; abrir a interface não concede acesso. O servidor do documento é relativo (`/`), usando a mesma origem/porta da interface, inclusive a porta publicada pelo Docker. Não aponta as requisições para uma API externa nem oferece o exemplo Petstore.
+
+### Autenticar e testar pela interface
+
+1. Execute `./mvnw -Pintegration clean verify`. Encerre somente o JAR antigo de clientes e inicie o novo com as variáveis anteriores de banco/Keycloak/broker. O padrão local é `CUSTOMER_DOCS_ENABLED=true`.
+2. Abra a interface e confira os grupos **Clientes** e **Score**, com sete operações e cadeados. Expanda uma operação para consultar parâmetros, request body, schema, exemplos e respostas.
+3. Obtenha um **access token novo** pelo Postman usando o fluxo Authorization Code + PKCE já documentado na T04. O Swagger usa o mesmo token; não existe grant de senha, novo cliente Keycloak ou login próprio na API.
+4. Clique **Authorize**, cole **somente o JWT**, sem o prefixo `Bearer`, e confirme. O esquema `bearerAuth` acrescenta o prefixo nas chamadas. Não use ID token nem refresh token.
+5. Use **Try it out** e **Execute**. Comece por GET `/customers`: USER e ADMIN retornam 200. Para GET por ID/Score, use um ID real, não necessariamente o `123` fictício dos exemplos.
+6. Para conferir escrita com USER, execute um POST com o exemplo válido: esperado 403 antes de gravar dados. Com ADMIN, um cadastro novo retorna 201 + Location; se o CPF já estiver reservado, retorna 409. PUT/DELETE com ADMIN alteram dados reais do ambiente local, como no Postman; escolha um cliente de teste.
+
+Os tokens locais duram cinco minutos. Quando expirarem, gere outro e substitua em Authorize. Para trocar de perfil, use Logout no diálogo de autorização e informe o novo token. A configuração não persiste autorização no armazenamento do navegador; recarregar a página exige autorizar novamente. O validador remoto da interface está desabilitado e os recursos são servidos pela própria aplicação.
+
+### Contratos documentados
+
+| Operação | Perfis | Sucesso | Erros de contrato |
+|---|---|---|---|
+| POST `/customers` | ADMIN | 201, Location e cliente com version 0 | 400, 401, 403, 409, 500 |
+| PUT `/customers/{id}` | ADMIN | 200, substituição completa | 400, 401, 403, 404, 409, 500 |
+| DELETE `/customers/{id}` | ADMIN | 204, exclusão lógica sem corpo | 400, 401, 403, 404, 500 |
+| GET `/customers/{id}` | USER/ADMIN | 200, cliente não excluído | 400, 401, 403, 404, 500 |
+| GET `/customers` | USER/ADMIN | 200, página ordenada por ID | 400, 401, 403, 500 |
+| GET `/customers/search` | USER/ADMIN | 200, busca parcial literal/paginada | 400, 401, 403, 500 |
+| GET `/customers/{id}/score` | USER/ADMIN | 200, Score e Cache-Control no-store | 400, 401, 403, 404, 500, 502, 503, 504 |
+
+Cada operação inclui schema e exemplo do sucesso, permissões em texto e extensão `x-required-roles`, além das respostas de erro aplicáveis. Roles são claims do JWT, não scopes OAuth2: `bearerAuth` não solicita scopes fictícios. DTOs documentam obrigatoriedade, tamanhos, CPF sem máscara/checksum, e-mail, status, paginação, limites Long e `version` somente leitura. POST/PUT recusam campos desconhecidos; não envie id/datas/version. Um PUT sem alteração efetiva conserva o estado; DELETE repetido retorna 404. Clientes INACTIVE continuam consultáveis, enquanto excluídos logicamente são omitidos.
+
+As respostas de erro conhecidas usam `application/problem+json` com campos RFC 9457 e extensão `code`; validação pode acrescentar `errors` com field/message, sem valores rejeitados. Os exemplos usam os códigos implementados: `VALIDATION_ERROR`, `INVALID_JSON`, `INVALID_REQUEST`, `AUTHENTICATION_REQUIRED`, `ACCESS_DENIED`, `CPF_ALREADY_REGISTERED`, `CUSTOMER_NOT_FOUND`, `SCORE_NOT_FOUND`, `SCORE_INVALID_RESPONSE`, `SCORE_UNAVAILABLE`, `SCORE_TIMEOUT` e `INTERNAL_ERROR`. A documentação não antecipa `traceId`, que ainda não faz parte das respostas.
+
+No Score, 404 possui dois exemplos: cliente ausente/excluído (sem chamar o provedor) ou Score ausente no provedor. Resposta inválida resulta em 502; falha transitória/conexão após tentativas limitadas, 503; timeout, 504. Falha não tratada de banco continua 500/INTERNAL_ERROR, inclusive no POST; 503 não foi acrescentado ao CRUD apenas para coincidir com uma proposta do planejamento. Eventos RabbitMQ permanecem documentados em `contracts/events`, sem endpoints HTTP fictícios.
+
+### Controlar exposição
+
+| Variável | Padrão local | Efeito |
+|---|---|---|
+| `CUSTOMER_DOCS_ENABLED` | true | Habilita spec JSON/YAML, configuração e Swagger UI |
+
+Fora da demonstração local, configure `CUSTOMER_DOCS_ENABLED=false`. Exporte antes de iniciar o JAR, ou passe como variável ao container e recrie-o. Isso desabilita os recursos springdoc e remove sua permissão pública na cadeia de segurança. Nas URLs documentais, o comportamento esperado é 401 sem token e 403 com token ADMIN; a documentação não fica acessível apenas por autenticar. Clientes/Actuator preservam suas regras. O Compose lê `.env`, mas Java/IDE precisa receber a variável explicitamente; `docker run` precisa recebê-la com `--env`.
+
+### Verificações automatizadas
+
+Os 15 testes rápidos da documentação conferem as sete operações/matriz de respostas, schemas/referências locais, campos obrigatórios, entrada fechada, version somente leitura, exemplos válidos na Bean Validation, arquivos HTML/CSS/JS e configuração local sem persistência de autorização. Também verificam que a API continua protegida e que desabilitar a documentação impede acesso anônimo e ADMIN.
+
+Os 13 cenários de `OpenApiContractIT` executam os exemplos **obtidos do documento gerado** contra controllers/segurança reais, PostgreSQL e WireMock descartáveis. Cobrem cadastro/409, consulta, página/busca, Score, PUT repetido, exclusão/404, validação, JSON inválido, 401/403 em todas as operações e os quatro erros mapeados de Score. As respostas são comparadas aos exemplos publicados; não acessam os dados locais. A imagem Docker também foi conferida com tokens reais do Keycloak, validação do documento pelo schema oficial OpenAPI e validação dos exemplos contra seus schemas.
 
 ## Fluxo de desenvolvimento
 

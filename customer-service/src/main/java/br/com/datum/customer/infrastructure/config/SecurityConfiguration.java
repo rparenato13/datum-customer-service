@@ -3,6 +3,7 @@ package br.com.datum.customer.infrastructure.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -58,7 +59,8 @@ public class SecurityConfiguration {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityProblemHandler errors) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityProblemHandler errors,
+            @Value("${customer.documentation.enabled:true}") boolean documentationEnabled) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -66,7 +68,14 @@ public class SecurityConfiguration {
                 .logout(AbstractHttpConfigurer::disable)
                 .requestCache(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(authorize -> authorize
+                .authorizeHttpRequests(authorize -> {
+                    if (documentationEnabled) {
+                        String[] documentation = {"/v3/api-docs", "/v3/api-docs.yaml", "/v3/api-docs/swagger-config",
+                                "/swagger-ui.html", "/swagger-ui/**"};
+                        authorize.requestMatchers(HttpMethod.GET, documentation).permitAll();
+                        authorize.requestMatchers(HttpMethod.HEAD, documentation).permitAll();
+                    }
+                    authorize
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/actuator/health").permitAll()
@@ -75,7 +84,8 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/customers").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/customers/*").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/customers/*").hasRole("ADMIN")
-                        .anyRequest().denyAll())
+                        .anyRequest().denyAll();
+                })
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(errors).accessDeniedHandler(errors))
                 .oauth2ResourceServer(oauth -> oauth.authenticationEntryPoint(errors).accessDeniedHandler(errors)
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakRoles())))
