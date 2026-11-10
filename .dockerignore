@@ -7,4 +7,8 @@ docs/
 **/.DS_Store
 .env
 .env.*
+local.env
+.local/
+**/.venv/
+**/__pycache__/
 **/*.log

@@ -12,6 +12,7 @@
 .env.*
 !.env.example
 /local.env
+/.local/
 .idea/
 *.iml
 

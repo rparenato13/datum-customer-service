@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. Mensageria e orquestração completa permanecem pendentes. O serviço de notificações ainda não está conectado ao banco.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. Outbox, publicação pelas aplicações, consumidores e orquestração completa permanecem pendentes. O serviço de notificações ainda não está conectado ao banco.
 
 ## Decisões da base
 
@@ -177,7 +177,7 @@ O `--rm` remove os containers das aplicações após a parada; as imagens perman
 
 ## PostgreSQL local e isolamento de bancos (T02.1)
 
-O `docker-compose.yml` contém PostgreSQL, Keycloak e WireMock. Os comandos desta seção iniciam somente o PostgreSQL. Execute na raiz do projeto:
+O `docker-compose.yml` contém PostgreSQL, Keycloak, WireMock e RabbitMQ. Os comandos desta seção iniciam somente o PostgreSQL. Execute na raiz do projeto:
 
 ```sh
 cp .env.example .env
@@ -233,7 +233,7 @@ Para encerrar o ambiente preservando os dados:
 docker compose down
 ```
 
-Para recriar o ambiente do zero, **o comando abaixo apaga todos os volumes do projeto, incluindo dados PostgreSQL e realm/chaves do Keycloak**. Use somente quando quiser descartar esses dados:
+Para recriar o ambiente do zero, **o comando abaixo apaga todos os volumes do projeto, incluindo dados PostgreSQL, realm/chaves do Keycloak e mensagens/dados do RabbitMQ**. Use somente quando quiser descartar esses dados:
 
 ```sh
 docker compose down --volumes
@@ -837,6 +837,103 @@ contracts/events/.venv/bin/python contracts/events/verify.py
 ```
 
 O ambiente `.venv` é ignorado pelo Git. A instalação inicial baixa dependências; a verificação seguinte é offline. Ela não inicia broker, publica mensagens, modifica dados nem executa produtores/consumidores. O checkpoint da T06 foi aprovado; os testes com broker e a implementação permanecem nas etapas seguintes.
+
+## RabbitMQ local e topologia (T07.1)
+
+Este incremento prepara a infraestrutura aprovada na T06. O POST ainda não grava outbox nem publica eventos; a publicação confiável será o próximo incremento T07.2. Não há consumidor de negócio nesta etapa. Nenhuma migration ou classe Java foi alterada.
+
+A imagem oficial está fixada em `rabbitmq:4.4.0-management`, com suporte a quorum queues, TTL e dead-letter at-least-once. A topologia é gerada diretamente de [contracts/events/topology.v1.json](contracts/events/topology.v1.json); não mantemos uma segunda lista manual de filas. São quatro exchanges, dez filas, doze bindings e dez policies. O volume `rabbitmq_data` preserva os dados e o hostname fixo `rabbitmq` mantém a identidade do nó durante recriações. É um nó local; não representa um cluster de alta disponibilidade.
+
+### Preparar e iniciar
+
+Na raiz, usando o `.env` já existente:
+
+```sh
+python3 infra/rabbitmq/configure.py
+python3 infra/rabbitmq/configure.py --check
+docker compose up -d --wait rabbitmq
+python3 infra/rabbitmq/verify.py
+```
+
+O primeiro comando cria `.local/rabbitmq/definitions.json`, com hashes SHA-256 e salt aleatório no formato do RabbitMQ. O diretório é local, privado e ignorado pelo Git/Docker build; senhas em texto aberto não são gravadas no arquivo. Execuções repetidas com os mesmos dados preservam os hashes e o arquivo. O broker importa esse arquivo no boot, montado somente para leitura. O arquivo precisa existir antes do `up`; o Compose não cria um diretório no lugar dele se estiver ausente.
+
+Há defaults de demonstração no Compose para as novas variáveis: não sobrescreva o `.env` existente com `.env.example`. Você pode personalizá-las antes da primeira inicialização. `configure.py` usa Python padrão e a configuração efetiva do Compose, sem acessar o broker. `--check` confere o arquivo sem modificá-lo.
+
+O verificador faz somente GETs administrativos: **38 verificações**, sem publicar, consumir, purgar mensagens ou exigir filas vazias. Confere versão, saúde, vhost, contas, ACLs de recursos/tópicos, exchanges, filas quorum, policies e bindings. Senhas e hashes não são impressos. Falhas exibem um diagnóstico sanitizado. Endereço alternativo de Management deve ser de loopback:
+
+```sh
+python3 infra/rabbitmq/verify.py --base-url http://localhost:15672
+```
+
+### Endereços e contas
+
+| Acesso | Host | Rede Compose |
+|---|---|---|
+| Console/HTTP Management | [localhost:15672](http://localhost:15672/) | `rabbitmq:15672` |
+| AMQP 0-9-1 | `localhost:15673` | `rabbitmq:5672` |
+
+As duas portas são publicadas exclusivamente em `127.0.0.1`. A porta de console não aceita conexões AMQP. Vhost: `datum`. Não confundir essas credenciais com as do PostgreSQL ou com tokens USER/ADMIN do Keycloak.
+
+| Conta RabbitMQ | Variável de senha | Escopo |
+|---|---|---|
+| `rabbitmq_admin` | `RABBITMQ_ADMIN_PASSWORD` | Provisionamento e console; não usar nas aplicações |
+| `customer_app` | `CUSTOMER_RABBITMQ_PASSWORD` | Publicar criação, ler fila de status, publicar retries |
+| `notification_app` | `NOTIFICATION_RABBITMQ_PASSWORD` | Ler fila de criação, publicar retries |
+| `status_publisher` | `STATUS_PUBLISHER_RABBITMQ_PASSWORD` | Publicar apenas a routing key de status no exchange de domínio |
+
+O usuário `guest` e o vhost `/` não são criados no bootstrap. Apenas a conta administrativa possui tag de administrador; contas das aplicações não recebem permissão de configurar recursos nem acesso ao console. Topic permissions impedem que `status_publisher` publique criação ou que `customer_app` publique status no exchange compartilhado. Nenhuma aplicação pode consumir a fila de outra.
+
+Os exchanges internos de retry são `direct`, conforme aprovado: neles, a ACL limita o acesso ao exchange, não a routing key. A publicação de retry pela aplicação deverá derivar a chave de seu próprio consumidor, sem aceitar destinos arbitrários, nas T08/T09. O publicador externo não pode escrever nos exchanges internos. O broker controla autenticação e roteamento; ele não valida o JSON do corpo contra o schema, responsabilidade dos produtores/consumidores.
+
+Variáveis de porta: `RABBITMQ_AMQP_PORT` (15673) e `RABBITMQ_MANAGEMENT_PORT` (15672). Seus defaults e os quatro passwords locais constam de `.env.example`. As contas importadas pertencem ao volume persistente: alterar `.env`/arquivo gerado não é um procedimento de rotação de senhas já existentes. Uma rotação exige alteração explícita no broker e sincronização das configurações; não apague o volume para trocar uma senha. O verificador detecta credenciais/topologia divergentes.
+
+### Conferência manual no console
+
+Acesse o console com `rabbitmq_admin` e a senha efetiva do `.env` (default de demonstração: `rabbitmq_admin_local_only`). Selecione `datum` e confira:
+
+- Exchanges `datum.customer.events` (topic), `datum.customer.retry`, `datum.customer.redelivery` e `datum.customer.dead` (direct).
+- Fila principal `customer-notification-service.created.v1`, três filas `.retry.1/.2/.3` e uma `.dlq`.
+- Fila principal `customer-service.status-change.v1`, três filas `.retry.1/.2/.3` e uma `.dlq`.
+- Filas quorum duráveis, limites de 10000 mensagens/64 MiB e overflow `reject-publish`.
+- Policy das principais: delivery-limit 5 e dead-letter at-least-once para sua DLQ.
+- Policies de retry: TTLs de 5000/30000/120000 ms e retorno pelo exchange `datum.customer.redelivery` apenas à fila do consumidor correspondente.
+
+As filas devem começar sem mensagens, pois as aplicações ainda não publicam ou consomem eventos. Estatísticas do console podem levar alguns segundos para aparecer. A verificação usa policies declaradas e seus padrões/prioridades para conferir a seleção mesmo antes da coleta de estatísticas. Não usa contadores de mensagens como prova de publicação pela aplicação.
+
+Para parar apenas o broker preservando dados:
+
+```sh
+docker compose stop rabbitmq
+```
+
+Para recriar o container com o mesmo volume:
+
+```sh
+docker compose up -d --force-recreate --wait rabbitmq
+python3 infra/rabbitmq/verify.py
+```
+
+### Teste AMQP isolado e reproduzível
+
+O smoke cria seu próprio projeto Compose com nome aleatório, portas livres e credenciais de teste. Ele inicia apenas outro RabbitMQ e remove somente esse ambiente e seu volume ao final. Não recebe endereço de broker externo e não publica/consome mensagens no ambiente local do projeto. Requer Docker e Pika, instalado somente em uma venv de teste:
+
+```sh
+python3 -m venv infra/rabbitmq/.venv
+infra/rabbitmq/.venv/bin/python -m pip install -r infra/rabbitmq/requirements-test.txt
+infra/rabbitmq/.venv/bin/python infra/rabbitmq/smoke.py
+```
+
+Esse teste confere credenciais AMQP reais, permissões positivas/negativas, publisher confirms, mandatory return, limite de corpo de 16 KiB, persistência após recriação, rejeição à DLQ, retorno dos retries de 5 segundos para ambos os consumidores e ausência de senhas/hashes nos logs. São probes de infraestrutura; não implementam consumidores de negócio, inbox ou outbox.
+
+Para esperar também pelos TTLs reais de 30 e 120 segundos, rode a variante completa (as mensagens aguardam em paralelo; o teste dura alguns minutos):
+
+```sh
+infra/rabbitmq/.venv/bin/python infra/rabbitmq/smoke.py --all-retries
+```
+
+A transferência de uma mensagem com o DLX funcionando não comprova todos os casos de falha possíveis. Perda de conexão entre confirm/ACK, destino indisponível, saturação, delivery-limit sob crashes e deduplicação transacional continuarão sendo verificados com as aplicações nas T07.2/T08/T09/T11. O RabbitMQ disponível nesta etapa não implica que cadastros antigos já tenham eventos.
+
+Referências: [imagem oficial](https://github.com/docker-library/official-images/blob/master/library/rabbitmq), [importação de definitions](https://www.rabbitmq.com/docs/definitions), [credenciais e hashes](https://www.rabbitmq.com/docs/passwords), [permissões](https://www.rabbitmq.com/docs/access-control).
 
 ## Fluxo de desenvolvimento
 
