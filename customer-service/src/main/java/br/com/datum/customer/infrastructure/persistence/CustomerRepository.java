@@ -1,5 +1,6 @@
 package br.com.datum.customer.infrastructure.persistence;
 
+import br.com.datum.customer.domain.CustomerStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -25,6 +26,13 @@ public interface CustomerRepository extends Repository<CustomerEntity, Long> {
     Optional<CustomerEntity> findAvailableByIdForUpdate(@Param("id") Long id);
 
     Page<CustomerEntity> findAllByDeletedAtIsNull(Pageable pageable);
+
+    Page<CustomerEntity> findAllByStatusAndDeletedAtIsNull(CustomerStatus status, Pageable pageable);
+
+    Page<CustomerEntity> findAllByNameNormalizedContainingIgnoreCaseAndDeletedAtIsNull(String name, Pageable pageable);
+
+    Page<CustomerEntity> findAllByNameNormalizedContainingIgnoreCaseAndStatusAndDeletedAtIsNull(
+            String name, CustomerStatus status, Pageable pageable);
 
     // Inclui os excluídos: a unicidade do CPF continua valendo no histórico.
     boolean existsByCpf(String cpf);

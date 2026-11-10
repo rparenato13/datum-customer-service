@@ -1,6 +1,7 @@
 package br.com.datum.customer.api;
 
 import br.com.datum.customer.application.CustomerNotFoundException;
+import br.com.datum.customer.application.InvalidCustomerQueryException;
 import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,9 +16,11 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.method.ParameterErrors;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
@@ -34,6 +37,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     ResponseEntity<Object> notFound(CustomerNotFoundException ex, WebRequest request) {
         return respond(ex, problem(HttpStatus.NOT_FOUND, "Cliente não encontrado",
                 "Cliente não encontrado.", "CUSTOMER_NOT_FOUND"), request);
+    }
+
+    @ExceptionHandler(InvalidCustomerQueryException.class)
+    ResponseEntity<Object> invalidQuery(InvalidCustomerQueryException ex, WebRequest request) {
+        return respond(ex, invalidParameters(), request);
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
@@ -65,7 +73,17 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleTypeMismatch(TypeMismatchException ex,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        return handleExceptionInternal(ex, invalidId(), headers, status, request);
+        var body = ex instanceof MethodArgumentTypeMismatchException mismatch && "id".equals(mismatch.getName())
+                ? invalidId() : invalidParameters();
+        return handleExceptionInternal(ex, body, headers, status, request);
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleMissingServletRequestParameter(MissingServletRequestParameterException ex,
+            HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        var body = invalidParameters();
+        body.setProperty("errors", List.of(Map.of("field", ex.getParameterName(), "message", "Parâmetro obrigatório.")));
+        return handleExceptionInternal(ex, body, headers, status, request);
     }
 
     @Override
@@ -79,7 +97,19 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 .filter(ParameterErrors.class::isInstance)
                 .map(ParameterErrors.class::cast)
                 .flatMap(errors -> errors.getFieldErrors().stream()).toList();
-        return handleExceptionInternal(ex, fields.isEmpty() ? invalidId() : invalidFields(fields), headers, status, request);
+        if (!fields.isEmpty()) {
+            return handleExceptionInternal(ex, invalidFields(fields), headers, status, request);
+        }
+        var onlyId = ex.getAllValidationResults().stream()
+                .allMatch(result -> "id".equals(result.getMethodParameter().getParameterName()));
+        var body = onlyId ? invalidId() : invalidParameters();
+        if (!onlyId) {
+            body.setProperty("errors", ex.getAllValidationResults().stream().flatMap(result ->
+                    result.getResolvableErrors().stream().map(error -> Map.of(
+                            "field", result.getMethodParameter().getParameterName(),
+                            "message", error.getDefaultMessage()))).toList());
+        }
+        return handleExceptionInternal(ex, body, headers, status, request);
     }
 
     @ExceptionHandler(Exception.class)
@@ -93,6 +123,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private ProblemDetail invalidId() {
         return problem(HttpStatus.BAD_REQUEST, "Identificador inválido",
                 "O identificador deve ser um número inteiro positivo.", "INVALID_REQUEST");
+    }
+
+    private ProblemDetail invalidParameters() {
+        return problem(HttpStatus.BAD_REQUEST, "Parâmetros inválidos",
+                "Verifique name, status, page e size. Use page >= 0, size entre 1 e 100 e status ACTIVE ou INACTIVE.",
+                "INVALID_REQUEST");
     }
 
     private ProblemDetail invalidFields(List<FieldError> errors) {

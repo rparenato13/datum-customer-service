@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. Listagem/busca/filtro, autenticação, mensageria e orquestração completa serão implementados em etapas posteriores. O serviço de notificações ainda não está conectado ao banco.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. Autenticação, mensageria e orquestração completa serão implementadas em etapas posteriores. O serviço de notificações ainda não está conectado ao banco.
 
 ## Decisões da base
 
@@ -46,15 +46,17 @@ Resultado esperado: `BUILD SUCCESS`, três testes rápidos aprovados (dois de cl
 - `customer-service/target/customer-service-0.0.1-SNAPSHOT.jar`
 - `customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar`
 
-Os testes rápidos inicializam servidores em portas aleatórias e verificam saúde HTTP e a resposta segura para uma falha interna simulada. No `customer-service`, o perfil de teste `smoke` exclui a infraestrutura de persistência e substitui `CustomerService` por um mock somente nesses testes. A persistência e os endpoints reais são verificados separadamente pelo perfil Maven `integration`, obrigatório para validar a T03.2:
+Os testes rápidos inicializam servidores em portas aleatórias e verificam saúde HTTP e a resposta segura para uma falha interna simulada. No `customer-service`, o perfil de teste `smoke` exclui a infraestrutura de persistência e substitui `CustomerService` por um mock somente nesses testes. A persistência e os endpoints reais são verificados separadamente pelo perfil Maven `integration`, obrigatório para validar a T03.3:
 
 ```sh
 ./mvnw -Pintegration clean verify
 ```
 
-Esse comando executa 3 testes rápidos e 80 cenários de integração: 12 de persistência em `CustomerPersistenceIT` e 68 HTTP em `CustomerApiIT`, usando Testcontainers com PostgreSQL 17.11. O bootstrap é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir o Compose para esses testes. O Docker precisa estar ativo; se estiver indisponível, os testes de integração falham, em vez de serem ignorados. O banco local do DBeaver não recebe os dados dos testes.
+Esse comando executa 3 testes rápidos e 134 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT` e 54 de listagem/busca em `CustomerQueryIT`, usando Testcontainers com PostgreSQL 17.11. O bootstrap é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir o Compose para esses testes. O Docker precisa estar ativo; se estiver indisponível, os testes de integração falham, em vez de serem ignorados. O banco local do DBeaver não recebe os dados dos testes.
 
 Os cenários HTTP cobrem cadastro/consulta, atualização completa, repetição de PUT, exclusão lógica, 400 para campos/JSON/IDs inválidos, 404 para inexistentes/excluídos, 409 para CPF reservado e rollback integral de atualizações recusadas. Há testes de cadastro concorrente com o mesmo CPF, DELETEs simultâneos e PUT aguardando uma exclusão não confirmada: o bloqueio é observado no PostgreSQL, e o PUT retorna 404 após o commit da exclusão. Verificações de privacidade conferem que erros e logs da aplicação não expõem os valores de CPF usados nos testes. A mensagem `Falha inesperada na API. Tipo: IllegalStateException` é produzida intencionalmente pelo teste da resposta 500; confira os contadores finais para avaliar o resultado.
+
+Os cenários de consulta conferem ordenação e limites das páginas, contagem sem excluídos, filtros combinados, busca sem diferenciar maiúsculas/minúsculas, preservação de acentos e busca literal de caracteres especiais. Também cobrem páginas além do fim, ausência de resultados e parâmetros inválidos, incluindo combinações de page/size incompatíveis com o offset do JPA.
 
 No Java 21, o suporte de testes do Mockito pode emitir um aviso sobre carregamento dinâmico de agente. Esse aviso foi observado na validação inicial, com os dois testes aprovados; confira os contadores de falhas e o resultado final do build.
 
@@ -108,7 +110,7 @@ Execute cada comando em seu próprio terminal.
 Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos de build indica o contexto da raiz, necessário para acessar o POM pai e os POMs dos módulos.
 
 ```sh
-docker build -f customer-service/Dockerfile -t datum/customer-service:t03.2 .
+docker build -f customer-service/Dockerfile -t datum/customer-service:t03.3 .
 docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t01.2 .
 ```
 
@@ -125,14 +127,14 @@ Prepare o PostgreSQL pelo Compose e exporte `CUSTOMER_DB_PASSWORD` conforme o se
 
 ```sh
 docker compose up -d --wait postgres
-docker run -d --rm --name datum-customer-t03-2 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db -p 127.0.0.1:18080:8080 datum/customer-service:t03.2
+docker run -d --rm --name datum-customer-t03-3 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db -p 127.0.0.1:18080:8080 datum/customer-service:t03.3
 docker run -d --rm --name datum-notification-t01-2 -p 127.0.0.1:18081:8081 datum/customer-notification-service:t01.2
 ```
 
 As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
 
 ```sh
-docker logs datum-customer-t03-2
+docker logs datum-customer-t03-3
 docker logs datum-notification-t01-2
 curl -i http://localhost:18080/actuator/health
 curl -i http://localhost:18081/actuator/health
@@ -143,14 +145,14 @@ Critério de validação: ambos respondem HTTP 200 com `{"status":"UP"}`. Se o `
 Confira o usuário dos processos:
 
 ```sh
-docker exec datum-customer-t03-2 id
+docker exec datum-customer-t03-3 id
 docker exec datum-notification-t01-2 id
 ```
 
 Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
 
 ```sh
-docker stop datum-customer-t03-2 datum-notification-t01-2
+docker stop datum-customer-t03-3 datum-notification-t01-2
 ```
 
 O `--rm` remove os containers das aplicações após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos. O PostgreSQL permanece ativo até `docker compose down`. Dentro da rede `datum_default`, a aplicação usa `postgres:5432`; no host, usa `localhost:15432`.
@@ -390,6 +392,90 @@ FROM customers WHERE id = 1;
 ```
 
 Os comandos de exclusão deste roteiro preservam as linhas, mas retiram os clientes da API. O CPF continua reservado e não há endpoint de restauração implementado.
+
+## Listagem, busca e filtro (T03.3)
+
+| Operação | Parâmetros | Resultado |
+|---|---|---|
+| `GET /customers` | `status` opcional, `page`, `size` | 200 com clientes disponíveis e paginação |
+| `GET /customers/search` | `name` obrigatório, `status` opcional, `page`, `size` | 200 com os resultados da busca e paginação |
+
+- `page`: inteiro maior ou igual a zero; padrão 0.
+- `size`: inteiro de 1 a 100; padrão 20. Page e size ausentes ou vazios usam os padrões.
+- `status`: opcional; quando informado, aceita exatamente `ACTIVE` ou `INACTIVE`. Valor vazio é inválido.
+- `name`: obrigatório na busca, não vazio, com até 150 caracteres. Espaços nas extremidades são removidos para a consulta.
+- A ordenação é fixa por `id` crescente; não há parâmetro de ordenação nesta etapa.
+
+O nome é procurado por trecho, sem diferenciar maiúsculas/minúsculas, usando `name_normalized`. Acentos são preservados: `ÁGATA` encontra `Ágata`, enquanto `agata` não equivale a `Ágata`. `%`, `_` e barra invertida são caracteres literais, não curingas fornecidos pelo cliente. As consultas derivadas do Spring Data fazem o escape e usam parâmetros vinculados.
+
+Toda consulta inclui `deleted_at IS NULL`, tanto nos itens quanto na contagem total. O filtro por status pode ser combinado com o nome. Páginas além do fim e consultas sem correspondência retornam 200 com `content: []`; ausência de resultados não é erro 404.
+
+### Formato da resposta
+
+O DTO `CustomerPageResponse` expõe um contrato próprio, sem serializar diretamente o `PageImpl` do Spring Data:
+
+| Campo | Significado |
+|---|---|
+| `content` | Lista de `CustomerResponse`, com os mesmos campos da consulta por ID |
+| `page` / `size` | Página solicitada e tamanho da página |
+| `totalElements` | Total de registros disponíveis que atendem aos filtros |
+| `totalPages` | Número de páginas para o tamanho solicitado; zero se não houver resultados |
+| `first` / `last` | Indicadores da posição da página; `last` também é verdadeiro nas páginas além do fim |
+
+Os parâmetros são validados antes da consulta. Falhas retornam 400 em `application/problem+json`, com `code: INVALID_REQUEST` e mensagens sem reproduzir os valores enviados. Quando disponíveis, os detalhes em `errors` identificam o parâmetro e a regra violada. Combinações em que `page * size` excede 2.147.483.647 são recusadas, pois o JPA usa offset inteiro. A T03.3 não altera o schema.
+
+### Roteiro de validação local
+
+Execute `./mvnw -Pintegration clean verify`, encerre a versão anterior e inicie o novo JAR com as variáveis do banco. Para testar a busca e os filtros com dados disponíveis, cadastre dois clientes fictícios:
+
+```sh
+curl -i -X POST http://localhost:8080/customers \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Ana Silva","cpf":"16899535009","email":"ana.silva@example.test","status":"ACTIVE"}'
+curl -i -X POST http://localhost:8080/customers \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Ana Souza","cpf":"39053344705","email":"ana.souza@example.test","status":"INACTIVE"}'
+```
+
+Esperado: 201 nos dois. Se algum CPF já estiver reservado, use outro CPF fictício válido. Os totais das consultas abaixo refletem todos os registros disponíveis do seu banco, inclusive cadastros de etapas anteriores.
+
+Confira a listagem e duas páginas de um item:
+
+```sh
+curl -i http://localhost:8080/customers
+curl -i 'http://localhost:8080/customers?page=0&size=1'
+curl -i 'http://localhost:8080/customers?page=1&size=1'
+```
+
+Esperado: 200 com conteúdo em ID crescente, páginas distintas e totais consistentes. O cliente excluído na T03.2 não deve aparecer no conteúdo nem em `totalElements`.
+
+Confira filtros, busca sem diferenciar maiúsculas/minúsculas e a combinação dos dois:
+
+```sh
+curl -i 'http://localhost:8080/customers?status=ACTIVE'
+curl -i 'http://localhost:8080/customers?status=INACTIVE'
+curl -i 'http://localhost:8080/customers/search?name=ANA'
+curl -i 'http://localhost:8080/customers/search?name=ana&status=ACTIVE'
+```
+
+Esperado: 200, somente o status solicitado nos filtros e correspondências de Ana na busca. A combinação deve retornar somente correspondências disponíveis com status ACTIVE.
+
+Teste ausência de resultados e validação:
+
+```sh
+curl -i 'http://localhost:8080/customers/search?name=nomesemcorrespondencia'
+curl -i 'http://localhost:8080/customers?size=101'
+curl -i 'http://localhost:8080/customers?status=BLOCKED'
+curl -i http://localhost:8080/customers/search
+```
+
+Esperado: 200 com conteúdo vazio no primeiro; 400 com `INVALID_REQUEST` nos demais. No DBeaver, compare os totais com:
+
+```sql
+SELECT count(*) FROM customers WHERE deleted_at IS NULL;
+SELECT status, count(*) FROM customers
+WHERE deleted_at IS NULL GROUP BY status ORDER BY status;
+```
 
 ## Fluxo de desenvolvimento
 
