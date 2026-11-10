@@ -3,11 +3,11 @@
 Solução para o desafio técnico Datum / DXC / Claro, organizada em dois serviços Spring Boot independentes:
 
 - `customer-service`: responsável pelo domínio de clientes e pela integração HTTP direta com o provedor externo de Score.
-- `customer-notification-service`: responsável pelo futuro consumo de eventos de criação e registro de notificações simuladas, com armazenamento próprio.
+- `customer-notification-service`: responsável pelo consumo de eventos de criação e registro de notificações simuladas, com armazenamento próprio.
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. O serviço de notificações ainda não está conectado ao banco; seu consumidor pertence à T09. A orquestração completa permanece pendente.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. T09: consumidor de criação com inbox e notificação simulada transacionais em banco próprio, retries e DLQ. A orquestração completa permanece pendente.
 
 ## Decisões da base
 
@@ -17,7 +17,7 @@ A T06 tem **contratos aprovados pelo responsável pelo projeto em 10/11/2026**, 
 - Spring Boot 3.5.16: versão fixa da linha 3.5, compatível com Java 21.
 - Maven 3.9.9, fixado pelo Maven Wrapper: permite reproduzir o build sem depender da versão do Maven instalada na máquina.
 - POM pai: centraliza versões e agrega os módulos. Cada serviço gera seu próprio JAR executável; nenhum serviço depende do outro.
-- Spring MVC e Actuator: servidor HTTP e verificação operacional de saúde. No serviço de notificações, HTTP atende somente à operação; seu processamento de negócio será assíncrono.
+- Spring MVC e Actuator: servidor HTTP e verificação operacional de saúde. No serviço de notificações, HTTP atende somente à operação; seu processamento de negócio é assíncrono.
 
 ## Pré-requisitos
 
@@ -25,7 +25,7 @@ A T06 tem **contratos aprovados pelo responsável pelo projeto em 10/11/2026**, 
 - Acesso ao Maven Central na primeira execução para baixar Maven e dependências.
 - No macOS/Linux, `curl` ou `wget` e `unzip` para o Wrapper.
 
-Para a execução via Docker, é necessário Docker com suporte a BuildKit e Compose v2 ou superior (incluídos no Docker Desktop), daemon ativo e acesso ao Docker Hub e ao Maven Central. Nesse caminho, o build roda dentro do container e dispensa JDK e Maven instalados no host. O PostgreSQL precisa estar ativo para iniciar o `customer-service`; os testes de integração criam seu próprio banco descartável.
+Para a execução via Docker, é necessário Docker com suporte a BuildKit e Compose v2 ou superior (incluídos no Docker Desktop), daemon ativo e acesso ao Docker Hub e ao Maven Central. Nesse caminho, o build roda dentro do container e dispensa JDK e Maven instalados no host. O PostgreSQL precisa estar ativo para iniciar os dois serviços; os testes de integração criam seus próprios bancos e brokers descartáveis.
 
 ## Validar o ambiente e o build
 
@@ -43,7 +43,7 @@ No Linux/Windows, configure `JAVA_HOME` para o JDK 21 instalado. No Windows, use
 
 Confirme Java 21 e Maven 3.9.9 na saída do Wrapper. O arquivo `.java-version` também indica Java 21 para quem usa jEnv; ele não substitui a configuração de `JAVA_HOME`.
 
-Resultado esperado: `BUILD SUCCESS`, 194 testes rápidos aprovados (48 de segurança, 62 do cliente HTTP/configuração de Score, 16 do outbox, 65 do consumidor de status, dois de clientes e um de notificações) e os arquivos:
+Resultado esperado: `BUILD SUCCESS`, 254 testes rápidos aprovados (193 do customer-service e 61 do serviço de notificações) e os arquivos:
 
 - `customer-service/target/customer-service-0.0.1-SNAPSHOT.jar`
 - `customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar`
@@ -54,9 +54,9 @@ Os testes rápidos verificam saúde, resposta segura para falha interna, autenti
 ./mvnw -Pintegration clean verify
 ```
 
-Esse comando executa 194 testes rápidos e 207 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT`, 19 de Score em `CustomerScoreIT`, 29 de outbox/publicação em `CustomerOutboxIT` e 25 de consumo de status em `CustomerStatusChangeIT`. São **401 testes**. PostgreSQL 17.11 e RabbitMQ 4.4.0 são criados por Testcontainers. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap PostgreSQL é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir as dependências do Compose para a suíte Maven. O Docker precisa estar ativo para os testes de integração; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco e o broker locais não recebem os dados dos testes.
+Esse comando executa 254 testes rápidos e 227 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT`, 19 de Score em `CustomerScoreIT`, 29 de outbox/publicação em `CustomerOutboxIT`, 25 de consumo de status em `CustomerStatusChangeIT` e 20 de notificações em `NotificationConsumerIT`. São **481 testes**. PostgreSQL 17.11 e RabbitMQ 4.4.0 são criados por Testcontainers. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap PostgreSQL é o mesmo de `infra/postgres/init/`, e cada aplicação conecta como seu próprio usuário (`customer_app` ou `notification_app`), sem privilégios administrativos. Não é necessário subir as dependências do Compose para a suíte Maven. O Docker precisa estar ativo para os testes de integração; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco e o broker locais não recebem os dados dos testes.
 
-Os 29 cenários de outbox verificam commit/rollback atômicos, falha na inserção do evento, CPF duplicado sem novo evento, payload/propriedades AMQP, broker parado, mandatory return, confirmação ausente/negativa, backoff persistido, evento inválido bloqueado, expiração de reserva, proteção contra confirmação por dono antigo, claims/publicações concorrentes e duplicata após queda entre confirm e atualização local. Os testes controlam o relay explicitamente para reproduzir falhas; apenas o agendamento fica desativado neles. O caminho real agendado é verificado na imagem Docker. O consumidor de notificações continua reservado à T09.
+Os 29 cenários de outbox verificam commit/rollback atômicos, falha na inserção do evento, CPF duplicado sem novo evento, payload/propriedades AMQP, broker parado, mandatory return, confirmação ausente/negativa, backoff persistido, evento inválido bloqueado, expiração de reserva, proteção contra confirmação por dono antigo, claims/publicações concorrentes e duplicata após queda entre confirm e atualização local. Os testes controlam o relay explicitamente para reproduzir falhas; apenas o agendamento fica desativado neles. O caminho real agendado é verificado na imagem Docker. Os 20 cenários de integração de notificações verificam transação atômica, duplicatas, concorrência, recuperação após commit sem ACK, falha de conexões, TTL, retry sem rota, DLQ e isolamento de banco/credencial. Os testes da T09 iniciam o serviço sem uma API de clientes em execução.
 
 Score acrescenta 81 cenários: 49 do adaptador HTTP, 13 da configuração e 19 da API integrada. Eles verificam validação estrita do contrato (inclusive CPF divergente, campos ausentes, tipos incorretos, duplicidade de propriedades, JSON incompleto e corpo acima de 4 KiB), contagem de tentativas, recuperação de falha transitória, timeout antes dos headers e durante o corpo, conexão recusada, redirect bloqueado, interrupção, USER/ADMIN, 401/403/400/404/502/503/504 e ausência de CPF/token nos erros e logs. A integração carrega as mesmas fixtures de `infra/wiremock/`, verifica que clientes INACTIVE continuam consultáveis e que excluídos/inexistentes não chamam o provedor. A transação do banco termina antes da chamada HTTP; Score não é persistido.
 
@@ -85,9 +85,14 @@ O issuer padrão é `http://localhost:18090/realms/datum` e o JWKS é derivado d
 
 Na primeira inicialização, o Flyway aplica V1 (clientes), V2 (outbox) e V3 (versão/inbox de status). Nas seguintes, valida o histórico e aplica somente migrations pendentes. O Hibernate usa `ddl-auto=validate`; divergências de schema interrompem a inicialização. O endpoint de saúde considera a conexão com o banco. O RabbitMQ não compõe esse healthcheck: seu estado é verificado separadamente, pois uma indisponibilidade do broker não impede o cadastro com evento pendente no banco.
 
-No segundo:
+No segundo, configure a senha efetiva de `NOTIFICATION_DB_PASSWORD` do seu `.env` (abaixo, default local). O serviço aplica sua migration em `notification_db` e começa a consumir mensagens de criação que já estiverem na fila:
 
 ```sh
+export NOTIFICATION_DB_URL=jdbc:postgresql://localhost:15432/notification_db
+export NOTIFICATION_DB_PASSWORD=notification_local_only
+export NOTIFICATION_RABBITMQ_HOST=localhost
+export NOTIFICATION_RABBITMQ_PORT=15673
+export NOTIFICATION_RABBITMQ_PASSWORD=notification_rabbitmq_local_only
 java -jar customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar
 ```
 
@@ -131,7 +136,7 @@ Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos 
 
 ```sh
 docker build -f customer-service/Dockerfile -t datum/customer-service:t08 .
-docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t01.2 .
+docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t09 .
 ```
 
 Cada Dockerfile tem dois estágios:
@@ -143,20 +148,20 @@ Os dois POMs de módulos são copiados para permitir a leitura do agregador Mave
 
 O `.dockerignore` exclui `docs/`, histórico Git, saídas Maven, arquivos locais e `.env*` do contexto enviado ao Docker. Essa exclusão é independente do `.gitignore`.
 
-Prepare PostgreSQL/Keycloak/WireMock/RabbitMQ pelo Compose e exporte `CUSTOMER_DB_PASSWORD` e `CUSTOMER_RABBITMQ_PASSWORD` conforme o seu `.env`, como na execução Java. Se usa o default local do broker e ainda não exportou a senha, faça `export CUSTOMER_RABBITMQ_PASSWORD='customer_rabbitmq_local_only'`. Inicie os containers:
+Prepare PostgreSQL/Keycloak/WireMock/RabbitMQ pelo Compose e exporte `CUSTOMER_DB_PASSWORD`, `CUSTOMER_RABBITMQ_PASSWORD`, `NOTIFICATION_DB_PASSWORD` e `NOTIFICATION_RABBITMQ_PASSWORD` conforme o seu `.env`, como na execução Java. Se usa o default local do broker e ainda não exportou a senha, faça `export CUSTOMER_RABBITMQ_PASSWORD='customer_rabbitmq_local_only'`. Inicie os containers:
 
 ```sh
 python3 infra/rabbitmq/configure.py
 docker compose up -d --wait postgres keycloak wiremock rabbitmq
 docker run -d --rm --name datum-customer-t08 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 --env CUSTOMER_RABBITMQ_HOST=rabbitmq --env CUSTOMER_RABBITMQ_PORT=5672 --env CUSTOMER_RABBITMQ_PASSWORD -p 127.0.0.1:18080:8080 datum/customer-service:t08
-docker run -d --rm --name datum-notification-t01-2 -p 127.0.0.1:18081:8081 datum/customer-notification-service:t01.2
+docker run -d --rm --name datum-notification-t09 --network datum_default --env NOTIFICATION_DB_URL=jdbc:postgresql://postgres:5432/notification_db --env NOTIFICATION_DB_PASSWORD --env NOTIFICATION_RABBITMQ_HOST=rabbitmq --env NOTIFICATION_RABBITMQ_PORT=5672 --env NOTIFICATION_RABBITMQ_PASSWORD -p 127.0.0.1:18081:8081 datum/customer-notification-service:t09
 ```
 
 As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
 
 ```sh
 docker logs datum-customer-t08
-docker logs datum-notification-t01-2
+docker logs datum-notification-t09
 curl -i http://localhost:18080/actuator/health
 curl -i http://localhost:18081/actuator/health
 ```
@@ -167,13 +172,13 @@ Confira o usuário dos processos:
 
 ```sh
 docker exec datum-customer-t08 id
-docker exec datum-notification-t01-2 id
+docker exec datum-notification-t09 id
 ```
 
 Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
 
 ```sh
-docker stop datum-customer-t08 datum-notification-t01-2
+docker stop datum-customer-t08 datum-notification-t09
 ```
 
 O `--rm` remove os containers das aplicações após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos. O PostgreSQL permanece ativo até `docker compose down`. Dentro da rede `datum_default`, a aplicação usa `postgres:5432`; no host, usa `localhost:15432`.
@@ -247,7 +252,7 @@ Se o bootstrap falhar, consulte `docker compose logs postgres` e corrija a causa
 
 ## Modelo e migração de clientes (T02.2)
 
-O Flyway do `customer-service` é responsável pela tabela `customers` e pelo histórico `flyway_schema_history`, no banco `customer_db`. Inicializar somente o PostgreSQL não cria tabelas de negócio: é necessário iniciar o serviço para aplicar as migrations. O banco `notification_db` continua sem tabelas de negócio.
+O Flyway do `customer-service` é responsável pela tabela `customers` e pelo histórico `flyway_schema_history`, no banco `customer_db`. Inicializar somente o PostgreSQL não cria tabelas de negócio: é necessário iniciar o serviço para aplicar as migrations. O Flyway independente do `customer-notification-service` cria suas tabelas de inbox/notificações em `notification_db` na T09. Cada serviço inicia e valida apenas suas próprias migrations.
 
 | Campo | Regra de persistência |
 |---|---|
@@ -886,7 +891,7 @@ As duas portas são publicadas exclusivamente em `127.0.0.1`. A porta de console
 
 O usuário `guest` e o vhost `/` não são criados no bootstrap. Apenas a conta administrativa possui tag de administrador; contas das aplicações não recebem permissão de configurar recursos nem acesso ao console. Topic permissions impedem que `status_publisher` publique criação ou que `customer_app` publique status no exchange compartilhado. Nenhuma aplicação pode consumir a fila de outra.
 
-Os exchanges internos de retry são `direct`, conforme aprovado: neles, a ACL limita o acesso ao exchange, não a routing key. O consumidor de status deriva a chave de sua própria fila; o futuro consumidor de notificações deverá fazer o mesmo. O publicador externo não pode escrever nos exchanges internos. O broker controla autenticação e roteamento; ele não valida o JSON do corpo contra o schema, responsabilidade dos produtores/consumidores.
+Os exchanges internos de retry são `direct`, conforme aprovado: neles, a ACL limita o acesso ao exchange, não a routing key. Cada consumidor deriva a chave de retry da sua própria fila, sem aceitar destinos arbitrários. O publicador externo não pode escrever nos exchanges internos. O broker controla autenticação e roteamento; ele não valida o JSON do corpo contra o schema, responsabilidade dos produtores/consumidores.
 
 Variáveis de porta: `RABBITMQ_AMQP_PORT` (15673) e `RABBITMQ_MANAGEMENT_PORT` (15672). Seus defaults e os quatro passwords locais constam de `.env.example`. As contas importadas pertencem ao volume persistente: alterar `.env`/arquivo gerado não é um procedimento de rotação de senhas já existentes. Uma rotação exige alteração explícita no broker e sincronização das configurações; não apague o volume para trocar uma senha. O verificador detecta credenciais/topologia divergentes.
 
@@ -956,7 +961,7 @@ O mesmo UUID, instante e corpo são preservados em todas as tentativas. Spring a
 
 A reserva padrão é de 30 s. Se a instância morrer, outra poderá retomar após a expiração. Atualizações finais verificam o token da reserva: um dono antigo não pode sobrescrever o resultado de uma reserva mais recente. O relay não mantém conexão/transação PostgreSQL ocupada enquanto aguarda o broker. Cada ciclo trabalha até dez eventos; após falha de transporte, encerra o ciclo para evitar multiplicar conexões.
 
-Uma queda depois de o broker aceitar o evento e antes de marcar PUBLISHED pode produzir nova entrega do mesmo evento. Portanto, a garantia é **at-least-once**, com deduplicação dos efeitos a implementar no consumidor da T09; não existe promessa de exactly-once. PUBLISHED significa confirmação pelo broker, não notificação processada. Um cliente excluído logicamente após o cadastro continua tendo seu fato de criação publicado.
+Uma queda depois de o broker aceitar o evento e antes de marcar PUBLISHED pode produzir nova entrega do mesmo evento. Portanto, a garantia é **at-least-once**, com deduplicação dos efeitos no consumidor da T09; não existe promessa de exactly-once. PUBLISHED significa confirmação pelo broker, não notificação processada. Um cliente excluído logicamente após o cadastro continua tendo seu fato de criação publicado.
 
 O publicador usa `customer_app`, sem permissão de configurar recursos; `spring.rabbitmq.dynamic=false` evita declaração por RabbitAdmin. A topologia deve ser preparada pela T07.1. Falha de credencial ou configuração de rota conserva o registro pendente e sinaliza código técnico, sem apagar o cadastro. Os logs próprios registram somente eventId, código e classe de falha, nunca payload, CPF, e-mail, senha ou token.
 
@@ -1014,7 +1019,7 @@ SELECT event_id, customer_id, event_type, schema_version, state, attempt_count,
 FROM customer_outbox ORDER BY occurred_at DESC;
 ```
 
-Esperado: V1/V2/V3 aplicadas e o novo evento PUBLISHED após o próximo ciclo. No console RabbitMQ, vhost datum, a fila `customer-notification-service.created.v1` deve ganhar uma mensagem Ready. Ainda não há consumidor de notificações, portanto não haverá processamento/ACK por uma aplicação nesta etapa. Evite Get messages com remoção/purge durante a validação; a contagem Ready pode demorar alguns segundos para atualizar.
+Esperado: V1/V2/V3 aplicadas e o novo evento PUBLISHED após o próximo ciclo. No console RabbitMQ, vhost datum, a fila `customer-notification-service.created.v1` deve ganhar uma mensagem Ready. Se o serviço de notificações da T09 estiver ativo, ele consome e confirma a mensagem, registrando-a no seu próprio banco; com ele parado, ela permanece Ready. Evite Get messages com remoção/purge durante a validação; a contagem Ready pode demorar alguns segundos para atualizar.
 
 ### Validação local: broker indisponível e recuperação
 
@@ -1038,7 +1043,7 @@ docker compose up -d --wait rabbitmq
 
 Espere o horário de `next_attempt_at` mais o intervalo de polling (padrão: backoff até 30 s, mais o tempo de conexão/confirm). O evento deve mudar para PUBLISHED com o mesmo UUID e instante, e a mensagem chegar à fila. Reiniciar o JAR enquanto há pendência também deve preservar o registro e permitir recuperação; uma reserva interrompida pode precisar expirar por até 30 s antes de ser retomada.
 
-Os testes automatizados também simulam perda de confirmação e queda entre confirm e marcação local, situação em que uma duplicata é esperada. Deduplicação da notificação será validada na T09. A versão de agregado e o consumo de CUSTOMER_STATUS_CHANGE estão descritos na T08 abaixo.
+Os testes automatizados também simulam perda de confirmação e queda entre confirm e marcação local, situação em que uma duplicata é esperada. A deduplicação da notificação é validada na T09. A versão de agregado e o consumo de CUSTOMER_STATUS_CHANGE estão descritos na T08 abaixo.
 
 Referências: [confirms e returns correlacionados do Spring AMQP](https://docs.spring.io/spring-amqp/reference/3.2/amqp/template.html), [SKIP LOCKED no PostgreSQL](https://www.postgresql.org/docs/17/sql-select.html).
 
@@ -1117,6 +1122,93 @@ infra/rabbitmq/.venv/bin/python infra/rabbitmq/publish_status.py \
 Esperado: o mesmo registro APPLIED, versão 1 e `updated_at` inalterado. O log registra DUPLICATE. Para testar conflito, publique uma **nova** solicitação com a versão antiga 0: novo ID, inbox REJECTED/VERSION_CONFLICT, cliente inalterado e mensagem na DLQ. Não repita o comando de nova solicitação para simular duplicata, pois ele gera outro ID.
 
 Os testes automatizados usam recursos descartáveis: duplicatas normalizadas e concorrentes, IDs conflitantes, versões divergentes, clientes ausentes/excluídos, corrida com PUT/DELETE, rollback integral, janela commit/ACK, JSON/metadados inválidos, TTL real, conexões PostgreSQL indisponíveis, retry sem rota e exaustão. Não altere permissões/constraints nem apague filas do seu ambiente para reproduzir essas falhas manualmente.
+
+## Notificações simuladas independentes (T09)
+
+O `customer-notification-service` consome `CUSTOMER_CREATED` da fila `customer-notification-service.created.v1`. O efeito de negócio é um registro fictício auditável: **nenhum e-mail, SMS ou envio externo é executado**. HTTP continua disponível somente para operação via Actuator, sem endpoints de notificações ou de clientes.
+
+### Banco próprio e transação
+
+A migration `V1__create_notification_records_and_inbox.sql` pertence exclusivamente ao `notification_db`. O número V1 é independente das migrations do `customer_db`. O serviço usa JDBC e transações Spring, com usuário `notification_app`, e não depende do artefato Java, API ou banco do `customer-service`.
+
+| Tabela | Conteúdo |
+|---|---|
+| `notification_event_inbox` | Chave única `(consumer_id, event_id)`, customerId, occurredAt, fingerprint normalizado, resultado e processedAt |
+| `notification_records` | notificationId UUID, mesmo evento/consumidor, customerId, kind `CUSTOMER_CREATED_SIMULATION` e registeredAt |
+
+O customerId é uma referência do evento, sem FK para outro banco e sem consulta ao estado atual do cliente. Um evento de criação válido pode ser processado mesmo que o cliente tenha sido atualizado/excluído depois ou a API de clientes esteja parada. Não há nome, CPF, e-mail, JWT, corpo JSON ou mensagem de exceção nessas tabelas.
+
+Inbox e registro fictício são gravados na mesma transação. A unicidade do evento serializa duplicatas concorrentes e há uma segunda unicidade por evento no registro. Falha em qualquer escrita reverte ambas. `PROCESSING` é transitório dentro da transação; o resultado concluído é `NOTIFICATION_REGISTERED`. A simulação confirma o registro, sem indicar entrega real de e-mail.
+
+O fingerprint SHA-256 usa os campos validados, IDs inteiros exatos e instante UTC normalizado, conforme a T06. Reordenação/whitespace/casas decimais equivalentes não mudam a identidade semântica. Duplicata idêntica recebe ACK e conserva notificationId/registeredAt; mesmo eventId com conteúdo diferente recebe `EVENT_ID_CONFLICT` e vai à DLQ, preservando o registro original. Não há expiração automática das chaves. UUIDs diferentes representam ocorrências diferentes, mesmo com customerId igual.
+
+### Entrega, falhas e isolamento
+
+O listener valida corpo UTF-8/schema fechado de até 16 KiB e metadados AMQP antes da transação, sem desserialização arbitrária de classes. ACK manual ocorre após o commit. Falha depois do commit e antes do ACK permite reentrega sem repetir o registro. Logs registram eventId/código/tipo de falha, sem payload nem dados pessoais.
+
+Falhas de processamento usam as três filas de retry já provisionadas: 5, 30 e 120 s. A publicação mantém bytes/identidade, deriva a routing key apenas da própria fila e exige confirm sem return antes de confirmar a origem. Transferência incerta deixa a origem sem ACK e recupera o canal após pausa. Falha na última rodada, mensagem inválida ou conflito definitivo vai à `.dlq`, sem requeue imediato/replay automático. A entrega é **at-least-once**, com deduplicação durável do efeito local; crashes podem gerar entregas físicas adicionais.
+
+A conta de banco não tem CONNECT em `customer_db`; a conta AMQP `notification_app` só lê a fila de criação e publica no exchange de retry. Não pode configurar a topologia, ler status ou publicar eventos de domínio. O serviço não recebe credenciais de clientes/Keycloak. Cada imagem contém apenas seu módulo. Não foi extraída uma biblioteca comum que imponha deploy conjunto aos serviços.
+
+Falha de notificação não desfaz um cadastro já confirmado. Com o consumidor parado, a fila conserva o evento; com uma falha transitória, o processamento posterior usa retry e a inbox. Health considera o banco próprio; RabbitMQ é verificado separadamente com a T07.1 e inspeção de fila/consumidor. `UP` sozinho não comprova consumo. Para testar falhas de banco/constraints, use a suíte descartável, sem alterar permissões ou dados do ambiente local.
+
+| Variável | Padrão | Uso |
+|---|---|---|
+| `NOTIFICATION_DB_URL` | jdbc:postgresql://localhost:15432/notification_db | No container: jdbc:postgresql://postgres:5432/notification_db |
+| `NOTIFICATION_DB_PASSWORD` | Obrigatória | Senha do usuário notification_app no banco |
+| `NOTIFICATION_RABBITMQ_HOST` | localhost | No container: rabbitmq |
+| `NOTIFICATION_RABBITMQ_PORT` | 15673 | No container: 5672 |
+| `NOTIFICATION_RABBITMQ_PASSWORD` | notification_rabbitmq_local_only | Senha da conta notification_app no broker |
+| `NOTIFICATION_CONSUMER_ENABLED` | true | false pausa somente esse consumidor |
+| `NOTIFICATION_CONSUMER_PREFETCH` | 10 | De 1 a 100 entregas antecipadas |
+| `NOTIFICATION_CONSUMER_RECOVERY_DELAY_MS` | 5000 | De 1000 a 30000 ms para recuperação/pausa após handoff incerto |
+| `NOTIFICATION_CONSUMER_CONFIRM_TIMEOUT_MS` | 5000 | De 100 a 5000 ms para confirmar retry |
+
+Vhost/usuários/filas são fixos conforme o contrato. O `.env` é lido pelo Compose; exporte as variáveis explicitamente para Java/IDE. Não passe `CUSTOMER_DB_PASSWORD` nem usuário administrativo ao serviço de notificações.
+
+### Validação local em etapas
+
+1. Execute `./mvnw -Pintegration clean verify`, com Docker ativo. O comando usa PostgreSQL/RabbitMQ descartáveis e não toca o banco nem as filas locais.
+2. Com a topologia já preparada, inicie `docker compose up -d --wait postgres rabbitmq`. Encerre o JAR antigo de notificações e, em outro terminal na raiz, configure os valores efetivos do seu `.env` (abaixo os defaults locais):
+
+```sh
+export NOTIFICATION_DB_URL=jdbc:postgresql://localhost:15432/notification_db
+export NOTIFICATION_DB_PASSWORD=notification_local_only
+export NOTIFICATION_RABBITMQ_HOST=localhost
+export NOTIFICATION_RABBITMQ_PORT=15673
+export NOTIFICATION_RABBITMQ_PASSWORD=notification_rabbitmq_local_only
+java -jar customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar
+```
+
+**Ao iniciar, o consumidor processa também os eventos de criação que já estão pendentes na fila.** Não será necessário recadastrar clientes. Cadastros anteriores à implantação do outbox, sem evento, continuam sem backfill.
+
+Para conferir primeiro somente a migration/saúde, inicie com `NOTIFICATION_CONSUMER_ENABLED=false` no mesmo terminal. Nesse modo não existe listener ativo. Depois de conferir as tabelas, encerre o JAR, exporte `NOTIFICATION_CONSUMER_ENABLED=true` e inicie novamente para consumir as mensagens pendentes.
+
+3. Confira `curl -i http://localhost:8081/actuator/health` e os logs com `code=NOTIFICATION_REGISTERED`. No DBeaver, crie uma conexão ao mesmo PostgreSQL/porta, mas com **Database `notification_db`**, usuário **`notification_app`** e senha `NOTIFICATION_DB_PASSWORD`. Não use `postgres` nem `customer_db` nessa conexão:
+
+```sql
+SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank;
+SELECT notification_id, event_id, customer_id, kind, registered_at
+FROM notification_records ORDER BY registered_at;
+SELECT event_id, customer_id, outcome, processed_at
+FROM notification_event_inbox ORDER BY processed_at;
+```
+
+Esperado: V1 aplicada, um registro por evento consumido e inbox `NOTIFICATION_REGISTERED`. No console RabbitMQ, as mensagens saem de Ready e não permanecem Unacked. Não use Get messages com remoção/purge para verificar.
+
+4. Escolha o eventId de um registro confirmado, anote notificationId/registeredAt e faça replay pelo script de demonstração (substitua `<eventId>` pelo UUID real):
+
+```sh
+python3 -m venv infra/rabbitmq/.venv
+infra/rabbitmq/.venv/bin/python -m pip install -r infra/rabbitmq/requirements-test.txt
+infra/rabbitmq/.venv/bin/python infra/rabbitmq/replay_created.py --event-id '<eventId>'
+```
+
+O script é uma ferramenta do lado produtor: consulta **somente** um evento CUSTOMER_CREATED PUBLISHED no outbox com `customer_app`, via PostgreSQL do Compose, e republica seus bytes/UUID/instante com a credencial AMQP do produtor. Não cria evento novo, não altera cliente/outbox e não lê o banco de notificações. Credenciais/configuração permanecem em memória, sem imprimir payload. Aceita `--env-file`/`-p`/`-f` para selecionar outro Compose. Usar o usuário de notificações para essa consulta é proibido pelas permissões.
+
+Esperado: confirm do broker e log `code=DUPLICATE`; o registro de notificação, seu ID e seus horários permanecem iguais. Repita após encerrar/iniciar o JAR de notificações: o resultado deve ser o mesmo. Esse replay explícito parte de evento já publicado, sem retirar mensagens da DLQ.
+
+5. Para comprovar independência, pare somente o JAR de notificações e cadastre um cliente fictício novo pela API com token ADMIN, usando CPF válido ainda não reservado. Esperado: 201, outbox PUBLISHED e evento pendente na fila de criação. Inicie notificações novamente: deve registrar o evento sem alterar o cliente. Evite limpar tabelas/filas, pois elas preservam o histórico para as próximas etapas.
 
 ## Fluxo de desenvolvimento
 

@@ -1,11 +1,42 @@
 spring:
   application:
     name: customer-notification-service
+  datasource:
+    url: ${NOTIFICATION_DB_URL:jdbc:postgresql://localhost:15432/notification_db}
+    username: notification_app
+    password: ${NOTIFICATION_DB_PASSWORD}
+  flyway:
+    clean-disabled: true
+  rabbitmq:
+    host: ${NOTIFICATION_RABBITMQ_HOST:localhost}
+    port: ${NOTIFICATION_RABBITMQ_PORT:15673}
+    virtual-host: datum
+    username: notification_app
+    password: ${NOTIFICATION_RABBITMQ_PASSWORD:notification_rabbitmq_local_only}
+    connection-timeout: 2s
+    channel-rpc-timeout: 5s
+    requested-heartbeat: 15s
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    dynamic: false
+    template:
+      mandatory: true
 
 server:
   port: ${SERVER_PORT:8081}
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+
+logging:
+  level:
+    org.springframework.amqp.rabbit.connection.CachingConnectionFactory: "OFF"
 
 management:
+  health:
+    rabbit:
+      enabled: false
   endpoints:
     web:
       exposure:
@@ -13,3 +44,10 @@ management:
   endpoint:
     health:
       show-details: never
+
+notification:
+  consumer:
+    enabled: ${NOTIFICATION_CONSUMER_ENABLED:true}
+    prefetch: ${NOTIFICATION_CONSUMER_PREFETCH:10}
+    recovery-delay-ms: ${NOTIFICATION_CONSUMER_RECOVERY_DELAY_MS:5000}
+    confirm-timeout-ms: ${NOTIFICATION_CONSUMER_CONFIRM_TIMEOUT_MS:5000}
