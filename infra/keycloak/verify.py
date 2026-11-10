@@ -6,6 +6,7 @@ O login interativo normal e documentado no README (Postman + PKCE).
 Nao imprime, persiste ou envia tokens a servicos externos.
 """
 
+import argparse
 import base64
 import hashlib
 from html.parser import HTMLParser
@@ -144,8 +145,61 @@ def internal_json(compose, path):
     return json.loads(body)
 
 
+def verify_api(base_url, tokens):
+    parsed = urllib.parse.urlsplit(base_url)
+    check(parsed.scheme in ("http", "https") and parsed.hostname in ("localhost", "127.0.0.1", "::1")
+          and parsed.username is None and not parsed.query and not parsed.fragment,
+          "A verificacao da API aceita somente URL de loopback, sem credenciais ou query.")
+    base_url = base_url.rstrip("/")
+    opener = urllib.request.build_opener(NoRedirect())
+
+    def call(method, path, token=None, payload=None):
+        headers = {"Accept": "application/json"}
+        if token is not None:
+            headers["Authorization"] = "Bearer " + token
+        data = None
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(payload).encode()
+        request = urllib.request.Request(base_url + path, data=data, headers=headers, method=method)
+        try:
+            with opener.open(request, timeout=15) as response:
+                return response.status, json.load(response)
+        except urllib.error.HTTPError as error:
+            return error.code, json.load(error)
+
+    status, body = call("GET", "/customers")
+    check(status == 401 and body.get("code") == "AUTHENTICATION_REQUIRED", "API nao recusou acesso sem token.")
+    print("OK: API sem token retorna 401 padronizado.", flush=True)
+    status, body = call("GET", "/customers", "not-a-jwt")
+    check(status == 401 and body.get("code") == "AUTHENTICATION_REQUIRED", "API nao recusou token malformado.")
+    print("OK: API com token malformado retorna 401 padronizado.", flush=True)
+    for role in ("USER", "ADMIN"):
+        status, _ = call("GET", "/customers", tokens[role])
+        check(status == 200, "API nao aceitou consulta com token real valido.")
+        print(f"OK: consulta com token real {role} retorna 200.", flush=True)
+
+    # O corpo invalido e o ID inexistente evitam qualquer gravacao, inclusive
+    # quando o script e executado contra o banco local de demonstracao.
+    valid_payload = dict(name="Cliente de Teste", cpf="52998224725", email="cliente@example.test", status="ACTIVE")
+    for method, path, payload, admin_status, admin_code in (
+        ("POST", "/customers", {}, 400, "VALIDATION_ERROR"),
+        ("PUT", "/customers/9223372036854775807", valid_payload, 404, "CUSTOMER_NOT_FOUND"),
+        ("DELETE", "/customers/9223372036854775807", None, 404, "CUSTOMER_NOT_FOUND"),
+    ):
+        status, body = call(method, path, tokens["USER"], payload)
+        check(status == 403 and body.get("code") == "ACCESS_DENIED", "API nao bloqueou escrita USER.")
+        print(f"OK: {method} com USER retorna 403 antes do processamento.", flush=True)
+        status, body = call(method, path, tokens["ADMIN"], payload)
+        check(status == admin_status and body.get("code") == admin_code, "ADMIN nao alcancou processamento esperado da API.")
+        print(f"OK: {method} com ADMIN alcanca a aplicacao ({admin_status}), sem gravar dados.", flush=True)
+
+
 def main():
-    compose = ["docker", "compose", *sys.argv[1:]]
+    parser = argparse.ArgumentParser(description="Verifica Keycloak local e, opcionalmente, a API protegida.")
+    parser.add_argument("--api-url", help="URL local da API para provas sem gravacao de dados")
+    options, compose_args = parser.parse_known_args()
+    compose = ["docker", "compose", *compose_args]
     config = json.loads(run(compose + ["config", "--format", "json"]))
     environment = config["services"]["keycloak"]["environment"]
     issuer = environment["KC_HOSTNAME"].rstrip("/") + "/realms/datum"
@@ -166,6 +220,7 @@ def main():
     print("OK: callbacks exatos do Postman aceitos, sem redirecionar para servicos externos.", flush=True)
 
     tokens = []
+    api_tokens = {}
     for username, variable, role in (("api-user", "KEYCLOAK_DEMO_USER_PASSWORD", "USER"),
                                      ("api-admin", "KEYCLOAK_DEMO_ADMIN_PASSWORD", "ADMIN")):
         code, verifier = login_code(discovery, username, environment[variable])
@@ -183,6 +238,7 @@ def main():
               "Validade do token inesperada.")
         check(set(claims.get("realm_access", {}).get("roles", [])) & API_ROLES == {role}, "Perfil incorreto no token.")
         tokens.append(token)
+        api_tokens[role] = token
         print(f"OK: {username} autenticou por codigo + PKCE; assinatura, iss, aud, exp e perfil {role} validos.", flush=True)
 
     parts = tokens[0].split(".")
@@ -230,6 +286,8 @@ def main():
     check(internal_discovery["issuer"] == issuer, "Issuer interno diverge do canonico.")
     check({key["kid"] for key in internal_jwks["keys"]} == {key["kid"] for key in jwks["keys"]}, "JWKS interno diverge.")
     print("OK: rede Docker acessa discovery/JWKS mantendo o mesmo issuer.", flush=True)
+    if options.api_url:
+        verify_api(options.api_url, api_tokens)
     print("Keycloak: verificacao concluida; nenhum token ou senha foi impresso.", flush=True)
 
 

@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local, realm e emissão de JWTs para os perfis USER/ADMIN. A validação de JWT e autorização da API serão implementadas na T04.2; os endpoints de clientes ainda não exigem token nesta etapa. Mensageria e orquestração completa permanecem pendentes. O serviço de notificações ainda não está conectado ao banco.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. Mensageria e orquestração completa permanecem pendentes. O serviço de notificações ainda não está conectado ao banco.
 
 ## Decisões da base
 
@@ -41,18 +41,20 @@ No Linux/Windows, configure `JAVA_HOME` para o JDK 21 instalado. No Windows, use
 
 Confirme Java 21 e Maven 3.9.9 na saída do Wrapper. O arquivo `.java-version` também indica Java 21 para quem usa jEnv; ele não substitui a configuração de `JAVA_HOME`.
 
-Resultado esperado: `BUILD SUCCESS`, três testes rápidos aprovados (dois de clientes e um de notificações) e os arquivos:
+Resultado esperado: `BUILD SUCCESS`, 51 testes rápidos aprovados (48 de segurança, dois de clientes e um de notificações) e os arquivos:
 
 - `customer-service/target/customer-service-0.0.1-SNAPSHOT.jar`
 - `customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar`
 
-Os testes rápidos inicializam servidores em portas aleatórias e verificam saúde HTTP e a resposta segura para uma falha interna simulada. No `customer-service`, o perfil de teste `smoke` exclui a infraestrutura de persistência e substitui `CustomerService` por um mock somente nesses testes. A persistência e os endpoints reais são verificados separadamente pelo perfil Maven `integration`, obrigatório para validar a T03.3:
+Os testes rápidos verificam saúde, resposta segura para falha interna e a matriz de autenticação/autorização. O perfil de teste `smoke` exclui a persistência e substitui `CustomerService` por um mock somente nesses testes HTTP. A segurança permanece ativa: os JWTs são assinados com chaves exclusivas de teste, e o decoder de produção consulta um JWKS HTTP local. Não há decoder falso nem validação de assinatura desabilitada. Persistência e endpoints com banco real são verificados pelo perfil Maven `integration`, obrigatório para validar a T04.2:
 
 ```sh
 ./mvnw -Pintegration clean verify
 ```
 
-Esse comando executa 3 testes rápidos e 134 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT` e 54 de listagem/busca em `CustomerQueryIT`, usando Testcontainers com PostgreSQL 17.11. O bootstrap é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir o Compose para esses testes. O Docker precisa estar ativo; se estiver indisponível, os testes de integração falham, em vez de serem ignorados. O banco local do DBeaver não recebe os dados dos testes.
+Esse comando executa 51 testes rápidos e 134 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT` e 54 de listagem/busca em `CustomerQueryIT`, usando Testcontainers com PostgreSQL 17.11. Os testes HTTP de negócio passam pela segurança com JWT ADMIN assinado. O bootstrap é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir o Compose/Keycloak para a suíte Maven. O Docker precisa estar ativo para os testes com banco; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco local do DBeaver não recebe os dados dos testes.
+
+Os 48 casos de segurança cobrem todas as operações de clientes, USER sem escrita, ADMIN com leitura/escrita, 401/403, privacidade dos erros, sessão/Basic desabilitados e tokens malformados, sem assinatura, com chave/kid/algoritmo/issuer/audiência incorretos, expirados, com nbf futuro ou sem exp/sub. Roles ausentes, malformadas ou vindas de claims não autorizados não concedem acesso. As chaves privadas de teste são geradas em memória e o JWKS publica somente a chave pública.
 
 Os cenários HTTP cobrem cadastro/consulta, atualização completa, repetição de PUT, exclusão lógica, 400 para campos/JSON/IDs inválidos, 404 para inexistentes/excluídos, 409 para CPF reservado e rollback integral de atualizações recusadas. Há testes de cadastro concorrente com o mesmo CPF, DELETEs simultâneos e PUT aguardando uma exclusão não confirmada: o bloqueio é observado no PostgreSQL, e o PUT retorna 404 após o commit da exclusão. Verificações de privacidade conferem que erros e logs da aplicação não expõem os valores de CPF usados nos testes. A mensagem `Falha inesperada na API. Tipo: IllegalStateException` é produzida intencionalmente pelo teste da resposta 500; confira os contadores finais para avaliar o resultado.
 
@@ -62,7 +64,7 @@ No Java 21, o suporte de testes do Mockito pode emitir um aviso sobre carregamen
 
 ## Testar manualmente os serviços
 
-Depois do build, prepare o PostgreSQL conforme a seção T02.1. Encerre instâncias antigas antes de usar as mesmas portas. Abra dois terminais na raiz e configure Java 21 em ambos. No primeiro, configure as variáveis do `customer-service`:
+Depois do build, prepare PostgreSQL e Keycloak pelas seções T02.1/T04.1 (`docker compose up -d --wait postgres keycloak`). Encerre instâncias antigas antes de usar as mesmas portas. Abra dois terminais na raiz e configure Java 21 em ambos. No primeiro, configure as variáveis do `customer-service`:
 
 ```sh
 export CUSTOMER_DB_URL='jdbc:postgresql://localhost:15432/customer_db'
@@ -72,6 +74,8 @@ java -jar customer-service/target/customer-service-0.0.1-SNAPSHOT.jar
 ```
 
 Use a senha efetiva de `CUSTOMER_DB_PASSWORD` do seu `.env` e ajuste a URL se alterou `POSTGRES_PORT`. A senha acima é apenas o valor de demonstração. O Compose lê `.env` automaticamente; uma aplicação iniciada por `java -jar`, Maven ou IDE precisa receber suas variáveis de ambiente explicitamente. Não passe credenciais de `datum_admin` à aplicação.
+
+O issuer padrão é `http://localhost:18090/realms/datum` e o JWKS é derivado desse endereço. Se alterou a porta do Keycloak, exporte `CUSTOMER_JWT_ISSUER_URI` com o issuer efetivo antes de iniciar a API; `CUSTOMER_JWT_JWK_SET_URI` pode definir separadamente o endereço para buscar as chaves. A audiência padrão é `customer-api`.
 
 Na primeira inicialização, o Flyway aplica `V1__create_customers.sql`. Nas seguintes, valida o histórico e aplica somente migrations pendentes. O Hibernate usa `ddl-auto=validate`; divergências de schema interrompem a inicialização. O endpoint de saúde do serviço iniciado normalmente passa a considerar a conexão com o banco.
 
@@ -105,12 +109,22 @@ Também é possível executar um serviço diretamente pelo Maven:
 
 Execute cada comando em seu próprio terminal.
 
+### Tokens nos exemplos curl
+
+Todos os comandos de clientes das seções T03 abaixo usam `$TOKEN_ADMIN`. Obtenha um access token novo no Postman, conforme a seção T04.1. No terminal em que executará os curls, copie o token para o prompt oculto:
+
+```sh
+export TOKEN_ADMIN="$(python3 -c 'import getpass; print(getpass.getpass("Access token ADMIN: "))')"
+```
+
+O valor fica na variável do terminal, sem ser incluído no comando salvo no histórico. Os tokens duram cinco minutos; renove a variável quando necessário. Para consultas com o perfil USER, faça o mesmo com `TOKEN_USER`. Requisições sem token não executarão os exemplos de negócio: retornarão 401. No Postman, selecione o token na autorização OAuth 2.0/Bearer, sem necessidade das variáveis do shell.
+
 ## Construir e testar as imagens Docker
 
 Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos de build indica o contexto da raiz, necessário para acessar o POM pai e os POMs dos módulos.
 
 ```sh
-docker build -f customer-service/Dockerfile -t datum/customer-service:t03.3 .
+docker build -f customer-service/Dockerfile -t datum/customer-service:t04.2 .
 docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t01.2 .
 ```
 
@@ -123,18 +137,18 @@ Os dois POMs de módulos são copiados para permitir a leitura do agregador Mave
 
 O `.dockerignore` exclui `docs/`, histórico Git, saídas Maven, arquivos locais e `.env*` do contexto enviado ao Docker. Essa exclusão é independente do `.gitignore`.
 
-Prepare o PostgreSQL pelo Compose e exporte `CUSTOMER_DB_PASSWORD` conforme o seu `.env`, como na execução Java. Inicie os containers:
+Prepare PostgreSQL/Keycloak pelo Compose e exporte `CUSTOMER_DB_PASSWORD` conforme o seu `.env`, como na execução Java. Inicie os containers:
 
 ```sh
-docker compose up -d --wait postgres
-docker run -d --rm --name datum-customer-t03-3 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db -p 127.0.0.1:18080:8080 datum/customer-service:t03.3
+docker compose up -d --wait postgres keycloak
+docker run -d --rm --name datum-customer-t04-2 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs -p 127.0.0.1:18080:8080 datum/customer-service:t04.2
 docker run -d --rm --name datum-notification-t01-2 -p 127.0.0.1:18081:8081 datum/customer-notification-service:t01.2
 ```
 
 As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
 
 ```sh
-docker logs datum-customer-t03-3
+docker logs datum-customer-t04-2
 docker logs datum-notification-t01-2
 curl -i http://localhost:18080/actuator/health
 curl -i http://localhost:18081/actuator/health
@@ -145,14 +159,14 @@ Critério de validação: ambos respondem HTTP 200 com `{"status":"UP"}`. Se o `
 Confira o usuário dos processos:
 
 ```sh
-docker exec datum-customer-t03-3 id
+docker exec datum-customer-t04-2 id
 docker exec datum-notification-t01-2 id
 ```
 
 Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
 
 ```sh
-docker stop datum-customer-t03-3 datum-notification-t01-2
+docker stop datum-customer-t04-2 datum-notification-t01-2
 ```
 
 O `--rm` remove os containers das aplicações após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos. O PostgreSQL permanece ativo até `docker compose down`. Dentro da rede `datum_default`, a aplicação usa `postgres:5432`; no host, usa `localhost:15432`.
@@ -277,7 +291,7 @@ Os erros usam `application/problem+json` (`ProblemDetail`, RFC 9457), com `type`
 
 A aplicação não registra payloads nem mensagens SQL de constraints, que podem conter dados pessoais. O handler de erro inesperado registra somente a classe da falha. Logs estruturados e correlação serão tratados na etapa de observabilidade.
 
-O POST persiste o cliente nesta etapa. JWT/roles e publicação de `CUSTOMER_CREATED` ainda não foram implementados; serão acrescentados nas etapas de segurança e mensageria, após os contratos correspondentes. Não houve alteração da migration V1.
+O POST persiste o cliente e, desde a T04.2, exige JWT com perfil ADMIN. A publicação de `CUSTOMER_CREATED` será acrescentada na etapa de mensageria, após a aprovação dos contratos. Não houve alteração da migration V1.
 
 ### Roteiro de validação local
 
@@ -286,7 +300,7 @@ Execute `./mvnw -Pintegration clean verify` com Java 21 e Docker ativo. Encerre 
 Cadastre um cliente fictício com CPF válido no algoritmo:
 
 ```sh
-curl -i -X POST http://localhost:8080/customers \
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X POST http://localhost:8080/customers \
   -H 'Content-Type: application/json' \
   -d '{"name":"Cliente de Demonstracao","cpf":"52998224725","email":"cliente@example.test","status":"ACTIVE"}'
 ```
@@ -294,7 +308,7 @@ curl -i -X POST http://localhost:8080/customers \
 Esperado: 201 com ID, dados cadastrados, datas e header `Location`. Use o ID retornado na consulta abaixo (substitua `1` se o ID for diferente):
 
 ```sh
-curl -i http://localhost:8080/customers/1
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" http://localhost:8080/customers/1
 ```
 
 Esperado: 200 com o mesmo cliente. Repetir o POST com o mesmo CPF deve produzir 409 e não criar outra linha. Se esse CPF já existir no banco local, o primeiro POST também retorna 409; consulte o cadastro existente no DBeaver ou use outro CPF fictício válido.
@@ -302,10 +316,10 @@ Esperado: 200 com o mesmo cliente. Repetir o POST com o mesmo CPF deve produzir 
 Teste uma entrada inválida e um ID inexistente:
 
 ```sh
-curl -i -X POST http://localhost:8080/customers \
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X POST http://localhost:8080/customers \
   -H 'Content-Type: application/json' \
   -d '{"name":"","cpf":"123","email":"invalido","status":"ACTIVE"}'
-curl -i http://localhost:8080/customers/9223372036854775807
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" http://localhost:8080/customers/9223372036854775807
 ```
 
 Esperado: 400 com erros de campos e 404, respectivamente. No DBeaver, confira os dados gravados:
@@ -341,10 +355,10 @@ Execute `./mvnw -Pintegration clean verify`, encerre a versão anterior do servi
 Atualize o cliente para INACTIVE e consulte o resultado:
 
 ```sh
-curl -i -X PUT http://localhost:8080/customers/1 \
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X PUT http://localhost:8080/customers/1 \
   -H 'Content-Type: application/json' \
   -d '{"name":"Cliente Atualizado","cpf":"52998224725","email":"atualizado@example.test","status":"INACTIVE"}'
-curl -i http://localhost:8080/customers/1
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" http://localhost:8080/customers/1
 ```
 
 Esperado: 200 nos dois comandos, com o mesmo ID e data de criação, novos dados e `updatedAt` atualizado. `INACTIVE` continua sendo consultável. Repetir esse PUT deve manter os mesmos dados e datas.
@@ -352,10 +366,10 @@ Esperado: 200 nos dois comandos, com o mesmo ID e data de criação, novos dados
 Teste validação e ID inexistente:
 
 ```sh
-curl -i -X PUT http://localhost:8080/customers/1 \
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X PUT http://localhost:8080/customers/1 \
   -H 'Content-Type: application/json' \
   -d '{"name":"","cpf":"123","email":"invalido","status":"ACTIVE"}'
-curl -i -X PUT http://localhost:8080/customers/9223372036854775807 \
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X PUT http://localhost:8080/customers/9223372036854775807 \
   -H 'Content-Type: application/json' \
   -d '{"name":"Cliente Atualizado","cpf":"52998224725","email":"atualizado@example.test","status":"INACTIVE"}'
 ```
@@ -365,13 +379,13 @@ Esperado: 400 com erros de campos e 404, respectivamente. Os dados do cliente di
 Para testar conflito, cadastre outro cliente fictício e tente usar seu CPF no primeiro:
 
 ```sh
-curl -i -X POST http://localhost:8080/customers \
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X POST http://localhost:8080/customers \
   -H 'Content-Type: application/json' \
   -d '{"name":"Outro Cliente","cpf":"11144477735","email":"outro@example.test","status":"ACTIVE"}'
-curl -i -X PUT http://localhost:8080/customers/1 \
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X PUT http://localhost:8080/customers/1 \
   -H 'Content-Type: application/json' \
   -d '{"name":"Alteracao Recusada","cpf":"11144477735","email":"recusado@example.test","status":"ACTIVE"}'
-curl -i http://localhost:8080/customers/1
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" http://localhost:8080/customers/1
 ```
 
 Esperado: 201 para o segundo cadastro (ou 409 se esse CPF já estiver reservado), 409 para o PUT e 200 no GET com os dados anteriores, sem alteração parcial.
@@ -379,9 +393,9 @@ Esperado: 201 para o segundo cadastro (ou 409 se esse CPF já estiver reservado)
 Por último, exclua logicamente o primeiro cliente:
 
 ```sh
-curl -i -X DELETE http://localhost:8080/customers/1
-curl -i http://localhost:8080/customers/1
-curl -i -X DELETE http://localhost:8080/customers/1
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X DELETE http://localhost:8080/customers/1
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" http://localhost:8080/customers/1
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X DELETE http://localhost:8080/customers/1
 ```
 
 Esperado: 204 sem corpo, 404 e 404. Repetir o PUT válido para esse ID também deve retornar 404. No DBeaver, confira que a linha continua presente com status INACTIVE e `deleted_at` preenchido:
@@ -429,10 +443,10 @@ Os parâmetros são validados antes da consulta. Falhas retornam 400 em `applica
 Execute `./mvnw -Pintegration clean verify`, encerre a versão anterior e inicie o novo JAR com as variáveis do banco. Para testar a busca e os filtros com dados disponíveis, cadastre dois clientes fictícios:
 
 ```sh
-curl -i -X POST http://localhost:8080/customers \
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X POST http://localhost:8080/customers \
   -H 'Content-Type: application/json' \
   -d '{"name":"Ana Silva","cpf":"16899535009","email":"ana.silva@example.test","status":"ACTIVE"}'
-curl -i -X POST http://localhost:8080/customers \
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X POST http://localhost:8080/customers \
   -H 'Content-Type: application/json' \
   -d '{"name":"Ana Souza","cpf":"39053344705","email":"ana.souza@example.test","status":"INACTIVE"}'
 ```
@@ -442,9 +456,9 @@ Esperado: 201 nos dois. Se algum CPF já estiver reservado, use outro CPF fictí
 Confira a listagem e duas páginas de um item:
 
 ```sh
-curl -i http://localhost:8080/customers
-curl -i 'http://localhost:8080/customers?page=0&size=1'
-curl -i 'http://localhost:8080/customers?page=1&size=1'
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" http://localhost:8080/customers
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" 'http://localhost:8080/customers?page=0&size=1'
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" 'http://localhost:8080/customers?page=1&size=1'
 ```
 
 Esperado: 200 com conteúdo em ID crescente, páginas distintas e totais consistentes. O cliente excluído na T03.2 não deve aparecer no conteúdo nem em `totalElements`.
@@ -452,10 +466,10 @@ Esperado: 200 com conteúdo em ID crescente, páginas distintas e totais consist
 Confira filtros, busca sem diferenciar maiúsculas/minúsculas e a combinação dos dois:
 
 ```sh
-curl -i 'http://localhost:8080/customers?status=ACTIVE'
-curl -i 'http://localhost:8080/customers?status=INACTIVE'
-curl -i 'http://localhost:8080/customers/search?name=ANA'
-curl -i 'http://localhost:8080/customers/search?name=ana&status=ACTIVE'
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" 'http://localhost:8080/customers?status=ACTIVE'
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" 'http://localhost:8080/customers?status=INACTIVE'
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" 'http://localhost:8080/customers/search?name=ANA'
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" 'http://localhost:8080/customers/search?name=ana&status=ACTIVE'
 ```
 
 Esperado: 200, somente o status solicitado nos filtros e correspondências de Ana na busca. A combinação deve retornar somente correspondências disponíveis com status ACTIVE.
@@ -463,10 +477,10 @@ Esperado: 200, somente o status solicitado nos filtros e correspondências de An
 Teste ausência de resultados e validação:
 
 ```sh
-curl -i 'http://localhost:8080/customers/search?name=nomesemcorrespondencia'
-curl -i 'http://localhost:8080/customers?size=101'
-curl -i 'http://localhost:8080/customers?status=BLOCKED'
-curl -i http://localhost:8080/customers/search
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" 'http://localhost:8080/customers/search?name=nomesemcorrespondencia'
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" 'http://localhost:8080/customers?size=101'
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" 'http://localhost:8080/customers?status=BLOCKED'
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" http://localhost:8080/customers/search
 ```
 
 Esperado: 200 com conteúdo vazio no primeiro; 400 com `INVALID_REQUEST` nos demais. No DBeaver, compare os totais com:
@@ -479,7 +493,7 @@ WHERE deleted_at IS NULL GROUP BY status ORDER BY status;
 
 ## Keycloak e tokens de demonstracao (T04.1)
 
-Esta etapa prepara o provedor de identidade. Os endpoints da API ainda mantêm o comportamento da T03; exigir Bearer JWT, validar claims e aplicar permissões USER/ADMIN será a T04.2.
+Esta etapa prepara o provedor de identidade. A API exige Bearer JWT e aplica permissões USER/ADMIN desde a T04.2, descrita adiante.
 
 ### Iniciar e verificar
 
@@ -536,7 +550,7 @@ Na autorização de uma requisição, escolha OAuth 2.0 e configure:
 | Metodo do desafio | SHA-256 (S256); deixe o Postman gerar o verifier |
 | Autenticacao do cliente | Credenciais no corpo, com client ID e sem secret |
 
-Solicite um novo token e autentique no formulário do Keycloak com `api-user` ou `api-admin`, usando a senha local correspondente. Ao alternar perfis, encerre a sessão anterior ou acrescente `prompt=login` aos parâmetros da requisição de autorização, para solicitar novamente as credenciais. Use o token obtido na própria requisição do Postman. A integração com os endpoints protegidos será testada na T04.2.
+Solicite um novo token e autentique no formulário do Keycloak com `api-user` ou `api-admin`, usando a senha local correspondente. Ao alternar perfis, encerre a sessão anterior ou acrescente `prompt=login` aos parâmetros da requisição de autorização, para solicitar novamente as credenciais. Use o access token obtido na própria requisição do Postman. O token USER permite consultas; o ADMIN também permite escrita.
 
 Somente os dois callbacks exatos do Postman e `http://127.0.0.1:18091/callback` (interceptado localmente pelo smoke test) estão registrados. Não há wildcard de redirecionamento. O fluxo escolhido segue as orientações de [Keycloak](https://www.keycloak.org/securing-apps/oidc-layers) e [Postman](https://learning.postman.com/docs/use/send-requests/authorization/oauth-20).
 
@@ -549,7 +563,7 @@ Somente os dois callbacks exatos do Postman e `http://127.0.0.1:18091/callback` 
 | JWKS pelo host | `http://localhost:18090/realms/datum/protocol/openid-connect/certs` |
 | JWKS na rede Compose | `http://keycloak:8080/realms/datum/protocol/openid-connect/certs` |
 
-O hostname do Keycloak fixa o issuer público, inclusive quando discovery é consultado pelo endereço interno. Na T04.2, o Resource Server validará esse issuer e poderá usar a URL interna do JWKS quando estiver em container. A URL para buscar a chave pode diferir do issuer; o valor de `iss` continuará sendo conferido. Não será necessário desabilitar validação de assinatura ou de issuer para resolver a diferença de rede.
+O hostname do Keycloak fixa o issuer público, inclusive quando discovery é consultado pelo endereço interno. O Resource Server valida esse issuer e usa a URL interna do JWKS quando configurado em container. A URL para buscar a chave pode diferir do issuer; o valor de `iss` continua sendo conferido. A validação de assinatura e de issuer permanece ativa nos dois contextos.
 
 ### Reinicio, importacao e limpeza
 
@@ -575,6 +589,69 @@ docker compose up -d --wait keycloak
 ```
 
 O nome de volume acima corresponde ao projeto Compose padrão `datum`. Esse procedimento não remove o volume PostgreSQL. Execute-o apenas quando quiser reinicializar o IdP local; para ajustes preservando seu estado, use a administração do Keycloak.
+
+## Protecao da API com JWT (T04.2)
+
+O `customer-service` usa Spring Security como OAuth 2.0 Resource Server. O Keycloak emite os tokens; a API recebe somente access tokens no header `Authorization: Bearer ...`. Não há login próprio, autenticação Basic, sessão HTTP de autenticação ou token aceito por query string. CSRF está desabilitado para essa API stateless baseada em Bearer.
+
+| Operacao | USER | ADMIN | Sem token/token invalido |
+|---|---|---|---|
+| GET de clientes, listagem, busca e filtro | Permitido | Permitido | 401 |
+| POST, PUT e DELETE de clientes | 403 | Permitido | 401 |
+| GET/HEAD `/actuator/health` | Publico, sem token necessario | Publico | Publico sem header de autenticacao |
+
+HEAD das consultas segue as mesmas permissões do GET. Rotas/métodos sem regra explícita são bloqueados. IDs inválidos, clientes inexistentes e dados inválidos continuam produzindo os erros da aplicação somente após a autorização. Assim, um USER tentando POST recebe 403 antes de qualquer gravação ou validação do corpo.
+
+O decoder Nimbus verifica assinatura RS256 pelas chaves do JWKS, issuer exato, audiência contendo `customer-api` e validade temporal (`exp`/`nbf`, com a tolerância padrão de relógio de 60 segundos do Spring Security). `exp` e `sub` são obrigatórios e subject não pode ser vazio. Somente USER/ADMIN da lista `realm_access.roles` viram authorities; outros claims como scope ou resource_access não concedem essas permissões.
+
+Erros 401/403 são tratados na cadeia de filtros e usam `application/problem+json`, com códigos `AUTHENTICATION_REQUIRED` e `ACCESS_DENIED`, respectivamente, além de `WWW-Authenticate: Bearer`. As mensagens não reproduzem tokens ou detalhes internos da falha de autenticação.
+
+### Configuracoes do Resource Server
+
+| Variavel | Padrao no host | Uso |
+|---|---|---|
+| `CUSTOMER_JWT_ISSUER_URI` | `http://localhost:18090/realms/datum` | Valor esperado de iss |
+| `CUSTOMER_JWT_JWK_SET_URI` | Issuer + `/protocol/openid-connect/certs` | Endereco das chaves publicas |
+| `CUSTOMER_JWT_AUDIENCE` | `customer-api` | Audiencia esperada |
+
+Em container, mantenha o issuer público e configure o JWKS para `http://keycloak:8080/realms/datum/protocol/openid-connect/certs`, conforme o comando Docker deste README. O decoder não precisa consultar discovery durante a inicialização; ele busca chaves ao validar tokens e usa cache. Isso não dispensa o Keycloak para emitir tokens ou obter novas chaves. A implementação segue o suporte oficial de [Resource Server JWT do Spring Security](https://docs.spring.io/spring-security/reference/6.5/servlet/oauth2/resource-server/jwt.html).
+
+### Conferencia automatizada com tokens reais
+
+Depois de iniciar o Keycloak e o novo JAR da API, execute:
+
+```sh
+python3 infra/keycloak/verify.py --api-url http://localhost:8080
+```
+
+Além das verificações do IdP, o script obtém tokens reais dos dois perfis e confere 401 sem token/token malformado, GET 200 para ambos e USER 403 em POST/PUT/DELETE. Para ADMIN, ele usa um POST inválido (400) e um ID inexistente em PUT/DELETE (404), comprovando que a aplicação foi alcançada sem inserir, alterar ou excluir clientes. O teste aceita somente URL de API em loopback e não imprime tokens. Para a imagem Docker, use `--api-url http://localhost:18080`.
+
+### Validacao manual pelo Postman e curl
+
+Execute `./mvnw -Pintegration clean verify`, inicie PostgreSQL/Keycloak e reinicie a API com o novo JAR. Gere tokens novos no Postman, pois tokens da etapa anterior podem ter expirado. Confira:
+
+1. GET `/customers` sem autorização: 401 com `AUTHENTICATION_REQUIRED`.
+2. GET `/customers` com token de `api-user`: 200.
+3. POST `/customers` com `api-user`: 403 com `ACCESS_DENIED`.
+4. O mesmo POST com `api-admin`: 201, ou 409 se o CPF já estiver reservado.
+5. PUT/DELETE de cliente de demonstração com `api-user`: 403; com `api-admin`, aplicam-se os resultados da T03.2.
+
+Para curl, carregue tokens novos sem eco no terminal:
+
+```sh
+export TOKEN_USER="$(python3 -c 'import getpass; print(getpass.getpass("Access token USER: "))')"
+export TOKEN_ADMIN="$(python3 -c 'import getpass; print(getpass.getpass("Access token ADMIN: "))')"
+curl -i http://localhost:8080/customers
+curl -i -H "Authorization: Bearer $TOKEN_USER" http://localhost:8080/customers
+curl -i -H "Authorization: Bearer $TOKEN_USER" -X POST http://localhost:8080/customers \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Cliente Seguranca","cpf":"93541134780","email":"seguranca@example.test","status":"ACTIVE"}'
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X POST http://localhost:8080/customers \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Cliente Seguranca","cpf":"93541134780","email":"seguranca@example.test","status":"ACTIVE"}'
+```
+
+Esperado: 401, 200, 403 e 201 (ou 409 se já cadastrado), nessa ordem. A T04.2 não altera migrations nem credenciais de banco e não publica eventos; mensageria permanece nas próximas etapas.
 
 ## Fluxo de desenvolvimento
 

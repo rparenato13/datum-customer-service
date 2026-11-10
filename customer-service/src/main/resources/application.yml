@@ -36,3 +36,9 @@ management:
   endpoint:
     health:
       show-details: never
+
+customer:
+  security:
+    issuer-uri: ${CUSTOMER_JWT_ISSUER_URI:http://localhost:18090/realms/datum}
+    jwk-set-uri: ${CUSTOMER_JWT_JWK_SET_URI:${customer.security.issuer-uri}/protocol/openid-connect/certs}
+    audience: ${CUSTOMER_JWT_AUDIENCE:customer-api}

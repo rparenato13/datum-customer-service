@@ -4,6 +4,8 @@ import br.com.datum.customer.application.CustomerService;
 import br.com.datum.customer.domain.CustomerStatus;
 import br.com.datum.customer.infrastructure.persistence.CustomerEntity;
 import br.com.datum.customer.infrastructure.persistence.CustomerRepository;
+import br.com.datum.customer.security.SecurityTestFixture;
+import br.com.datum.customer.security.TestJwtSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,6 +54,7 @@ import static org.awaitility.Awaitility.await;
 @Testcontainers
 @ExtendWith(OutputCaptureExtension.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SecurityTestFixture
 class CustomerApiIT {
 
     @Container
@@ -89,6 +92,7 @@ class CustomerApiIT {
 
     @BeforeEach
     void clearDisposableDatabase() {
+        TestJwtSupport.authenticateAsAdmin(http);
         // Este banco pertence exclusivamente ao container de teste desta classe.
         jdbc.update("DELETE FROM customers");
     }

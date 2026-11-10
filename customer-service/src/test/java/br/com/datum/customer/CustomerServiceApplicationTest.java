@@ -1,6 +1,9 @@
 package br.com.datum.customer;
 
 import br.com.datum.customer.application.CustomerService;
+import br.com.datum.customer.security.SecurityTestFixture;
+import br.com.datum.customer.security.TestJwtSupport;
+import org.junit.jupiter.api.BeforeEach;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,6 +24,7 @@ import static org.mockito.Mockito.when;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("smoke")
 @ExtendWith(OutputCaptureExtension.class)
+@SecurityTestFixture
 class CustomerServiceApplicationTest {
 
     @MockitoBean
@@ -28,6 +32,11 @@ class CustomerServiceApplicationTest {
 
     @Autowired
     private TestRestTemplate restTemplate;
+
+    @BeforeEach
+    void authenticate() {
+        TestJwtSupport.authenticateAsAdmin(restTemplate);
+    }
 
     @Test
     void shouldStartAndReportHealthy() {

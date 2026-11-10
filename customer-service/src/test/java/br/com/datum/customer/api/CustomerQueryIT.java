@@ -3,6 +3,8 @@ package br.com.datum.customer.api;
 import br.com.datum.customer.domain.CustomerStatus;
 import br.com.datum.customer.infrastructure.persistence.CustomerEntity;
 import br.com.datum.customer.infrastructure.persistence.CustomerRepository;
+import br.com.datum.customer.security.SecurityTestFixture;
+import br.com.datum.customer.security.TestJwtSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SecurityTestFixture
 class CustomerQueryIT {
 
     @Container
@@ -71,6 +74,7 @@ class CustomerQueryIT {
 
     @BeforeEach
     void prepareDisposableDatabase() {
+        TestJwtSupport.authenticateAsAdmin(http);
         jdbc.update("DELETE FROM customers");
         available = List.of(
                 save("Ana Silva", 0, CustomerStatus.ACTIVE, false),
