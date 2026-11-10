@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. Os endpoints de negócio, persistência, autenticação, mensageria e orquestração com Docker Compose serão implementados em etapas posteriores. O status `UP` atual valida somente a inicialização de cada aplicação; ainda não há dependências externas integradas.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. Etapa T02.1: PostgreSQL local via Docker Compose, com dois bancos e credenciais segregadas. As aplicações ainda não se conectam ao banco; JPA/Flyway, endpoints de negócio, autenticação, mensageria e orquestração completa serão implementados em etapas posteriores. O status `UP` atual das aplicações valida somente sua inicialização.
 
 ## Decisões da base
 
@@ -23,7 +23,7 @@ Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações
 - Acesso ao Maven Central na primeira execução para baixar Maven e dependências.
 - No macOS/Linux, `curl` ou `wget` e `unzip` para o Wrapper.
 
-Para a execução via Docker, é necessário Docker com suporte a BuildKit (incluído no Docker Desktop), daemon ativo e acesso ao Docker Hub e ao Maven Central. Nesse caminho, o build roda dentro do container e dispensa JDK e Maven instalados no host. Bancos de dados ainda não são necessários.
+Para a execução via Docker, é necessário Docker com suporte a BuildKit e Compose v2 ou superior (incluídos no Docker Desktop), daemon ativo e acesso ao Docker Hub e ao Maven Central. Nesse caminho, o build roda dentro do container e dispensa JDK e Maven instalados no host. O PostgreSQL da T02.1 é validado separadamente; ainda não é necessário para iniciar as aplicações.
 
 ## Validar o ambiente e o build
 
@@ -138,6 +138,73 @@ docker stop datum-customer-t01-2 datum-notification-t01-2
 ```
 
 O `--rm` remove os containers após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos.
+
+## PostgreSQL local e isolamento de bancos (T02.1)
+
+O `docker-compose.yml` contém, por enquanto, somente PostgreSQL. Execute na raiz do projeto:
+
+```sh
+cp .env.example .env
+docker compose config --quiet
+docker compose up -d --wait postgres
+docker compose ps
+sh infra/postgres/verify.sh
+```
+
+Se `.env` já existir, preserve o arquivo e complete as variáveis necessárias em vez de sobrescrevê-lo. As senhas do `.env.example` são fictícias e exclusivas para demonstração local. O `.env` é ignorado pelo Git. O comando `config --quiet` valida a configuração sem imprimir as senhas.
+
+Resultado esperado: serviço `postgres` saudável (`healthy`) e todas as verificações do script com prefixo `OK`, terminando em `validação de acesso e isolamento concluída`. O cliente `psql` usado pelo script já está na imagem; não é necessário instalá-lo no host. No Windows, execute o script usando um shell compatível, como Git Bash ou WSL.
+
+### Organização e decisões
+
+| Serviço futuro | Banco | Usuário |
+|---|---|---|
+| `customer-service` | `customer_db` | `customer_app` |
+| `customer-notification-service` | `notification_db` | `notification_app` |
+
+- PostgreSQL 17.11, imagem `postgres:17.11-bookworm`: versão de manutenção fixa de uma linha suportada.
+- Uma instância local com bancos e credenciais distintos atende à segregação lógica aprovada. Cada serviço será dono do seu banco e das suas migrations.
+- `datum_admin` é o administrador de bootstrap; suas credenciais não devem ser usadas pelas aplicações.
+- Usuários de serviço podem criar tabelas no próprio schema para as futuras migrations, mas não são superusuários e não podem criar bancos ou outros usuários.
+- A permissão padrão de conexão de `PUBLIC` é revogada nos bancos de aplicação e nos bancos de manutenção `postgres`/`template1`. Assim, conhecer o endereço do servidor não permite que um usuário de serviço conecte no banco do outro.
+- As conexões TCP exigem senha com SCRAM-SHA-256. A validação usa TCP, evitando a autenticação local por socket usada no bootstrap da imagem oficial.
+- A porta `127.0.0.1:15432` fica restrita ao host e evita conflito com outros PostgreSQL locais. Para alterá-la, edite `POSTGRES_PORT` no `.env`. Dentro da futura rede Compose, o endereço será `postgres:5432`.
+- O volume `datum_postgres_data` mantém os dados entre paradas. O healthcheck usa `pg_isready` via TCP; o script de verificação testa autenticação, escrita e isolamento.
+
+O script `infra/postgres/init/01-create-databases.sh` cria bancos e usuários apenas na primeira inicialização de um volume vazio. Ele não substitui as futuras migrations Flyway das aplicações. Alterar uma senha no `.env` depois dessa inicialização não altera automaticamente a senha já armazenada no banco.
+
+### Validação manual e reinício
+
+Para consultar o banco de clientes com suas próprias credenciais:
+
+```sh
+docker compose exec postgres sh -c 'PGPASSWORD="$CUSTOMER_DB_PASSWORD" psql -h 127.0.0.1 -U customer_app -d customer_db -c "SELECT current_user, current_database();"'
+```
+
+Para conferir a preservação dos bancos e usuários após reiniciar:
+
+```sh
+docker compose restart postgres
+docker compose up -d --wait postgres
+sh infra/postgres/verify.sh
+```
+
+O teste cria tabelas de prova dentro de transações revertidas ao final; não mantém dados ou tabelas de teste. Ele verifica acesso ao próprio banco, capacidade de criação/escrita, ausência de privilégios administrativos, bloqueio de conexão cruzada e rejeição de senhas incorretas.
+
+Para encerrar o ambiente preservando os dados:
+
+```sh
+docker compose down
+```
+
+Para recriar o ambiente do zero, **o comando abaixo apaga o volume e todos os dados locais deste projeto**. Use somente quando quiser descartar os dados:
+
+```sh
+docker compose down --volumes
+docker compose up -d --wait postgres
+```
+
+Se o bootstrap falhar, consulte `docker compose logs postgres` e corrija a causa. Os scripts de inicialização não são retomados automaticamente sobre um volume já inicializado; em ambiente descartável, recrie o volume pelo procedimento acima.
 
 ## Fluxo de desenvolvimento
 
