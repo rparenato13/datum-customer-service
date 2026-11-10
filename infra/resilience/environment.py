@@ -40,11 +40,14 @@ def free_port():
 
 
 class Environment:
-    def __init__(self, image_tag="t11", app_profiles=None):
-        if image_tag not in ("t11", "t12") or app_profiles not in (None, "observability"):
+    def __init__(self, image_tag="t11", app_profiles=None, app_documentation=False):
+        if type(app_documentation) is not bool:
+            raise ValueError("Configuracao de documentacao de teste invalida.")
+        if image_tag not in ("t11", "t12", "t13") or app_profiles not in (None, "observability"):
             raise ValueError("Configuracao de teste nao prevista.")
         self.image_tag = image_tag
         self.app_profiles = app_profiles
+        self.app_documentation = app_documentation
         self.directory = tempfile.TemporaryDirectory(prefix="datum-resilience-")
         self.project = "datum-resilience-" + uuid.uuid4().hex[:10]
         self.customer = self.project + "-customer"
@@ -108,7 +111,7 @@ class Environment:
         if service == "customer":
             values.update(CUSTOMER_JWT_ISSUER_URI="http://localhost:" + self.ports["keycloak"] + "/realms/datum",
                 CUSTOMER_JWT_JWK_SET_URI="http://keycloak:8080/realms/datum/protocol/openid-connect/certs", SCORE_BASE_URL="http://wiremock:8080",
-                OUTBOX_PUBLISHER_ENABLED="true", STATUS_CONSUMER_ENABLED="true", CUSTOMER_DOCS_ENABLED="false")
+                OUTBOX_PUBLISHER_ENABLED="true", STATUS_CONSUMER_ENABLED="true", CUSTOMER_DOCS_ENABLED=str(self.app_documentation).lower())
         else:
             values["NOTIFICATION_CONSUMER_ENABLED"] = "true"
         if self.app_profiles:

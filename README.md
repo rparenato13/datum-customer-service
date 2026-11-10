@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. T09: consumidor de criação com inbox e notificação simulada transacionais em banco próprio, retries e DLQ. T10: Swagger UI/OpenAPI com autenticação Bearer, schemas, exemplos e respostas por operação. T11: limites de banco e suíte reproduzível de falhas distribuídas em ambiente descartável. T12: logs JSON UTC, correlação HTTP/Score/outbox/consumidores, métricas protegidas e diagnóstico de performance. A orquestração completa permanece pendente.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. T09: consumidor de criação com inbox e notificação simulada transacionais em banco próprio, retries e DLQ. T10: Swagger UI/OpenAPI com autenticação Bearer, schemas, exemplos e respostas por operação. T11: limites de banco e suíte reproduzível de falhas distribuídas em ambiente descartável. T12: logs JSON UTC, correlação HTTP/Score/outbox/consumidores, métricas protegidas e diagnóstico de performance. T13: matriz de cenários, execução consolidada com conferência de evidências e smoke da jornada completa entre serviços. A orquestração completa permanece pendente.
 
 ## Decisões da base
 
@@ -1304,6 +1304,22 @@ infra/rabbitmq/.venv/bin/python infra/observability/verify.py
 ```
 
 Essa execução constrói imagens T12 e usa somente seus próprios bancos, filas, portas e credenciais. O processo de revisão/commit continua após a validação local pelo responsável pelo projeto.
+
+## Plano de testes e smoke integrado (T13)
+
+A [matriz T13](infra/testing/README.md) relaciona os cenários às classes/verificadores e distingue testes rápidos, integração real e jornada completa. O [manifesto de suítes](infra/testing/suites.json) lista as classes previstas por módulo. O executor confere relatórios JUnit recentes e completos; teste ausente, falha, erro, skip ou rerun interrompe a aprovação.
+
+Com Java 21, Docker ativo e a `.venv` do RabbitMQ preparada, execute:
+
+```sh
+infra/rabbitmq/.venv/bin/python infra/testing/run.py --suite all
+```
+
+Esse comando executa os 548 testes Maven, as verificações de contratos/coletores/executor e o smoke em ambiente descartável. O smoke emite tokens USER/ADMIN pelo Keycloak real e verifica HTTP, PostgreSQL, Score, publicação, consumidores, duplicatas, conflito de versão, DLQ e exclusão lógica. Os dois serviços Java são imagens `:t13`, iniciadas na rede das dependências Compose; o quickstart com todos os serviços no Compose principal permanece na T14.
+
+Para escolher uma camada: `--suite fast`, `--suite integration` ou `--suite smoke`. As duas primeiras usam Maven `clean verify`, com `-Pintegration` na segunda; o smoke pode ser repetido com `--skip-build` somente se as imagens forem da mesma revisão. Cada execução gera um resumo e logs privados em `.local/testing/`, ignorados pelo Git. O executor para na primeira falha, sem aprovar resultados parciais ou usar relatórios anteriores como evidência. A limpeza do smoke atua somente nos recursos criados por ele.
+
+As suítes longas T11/T12 continuam disponíveis separadamente para seus riscos específicos. A contagem de testes não representa percentual de cobertura ou prova de capacidade sob carga.
 
 ## Fluxo de desenvolvimento
 

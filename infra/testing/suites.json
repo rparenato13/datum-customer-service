@@ -1,0 +1,48 @@
+{
+  "customer-service": {
+    "fast": [
+      "br.com.datum.customer.CustomerServiceApplicationTest",
+      "br.com.datum.customer.api.OpenApiDisabledTest",
+      "br.com.datum.customer.api.OpenApiDocumentationTest",
+      "br.com.datum.customer.infrastructure.integrations.score.HttpScoreClientTest",
+      "br.com.datum.customer.infrastructure.integrations.score.ScoreClientPropertiesTest",
+      "br.com.datum.customer.infrastructure.outbox.CustomerCreatedEventCodecTest",
+      "br.com.datum.customer.infrastructure.outbox.OutboxSchedulerTest",
+      "br.com.datum.customer.infrastructure.outbox.RabbitEventPublisherTest",
+      "br.com.datum.customer.observability.CorrelationContextTest",
+      "br.com.datum.customer.observability.MessageObservationTest",
+      "br.com.datum.customer.observability.MetricsSecurityTest",
+      "br.com.datum.customer.security.CustomerSecurityTest",
+      "br.com.datum.customer.status.ConfirmedStatusRetrySenderTest",
+      "br.com.datum.customer.status.StatusChangeCodecTest",
+      "br.com.datum.customer.status.StatusDeliveryHandlerTest",
+      "br.com.datum.customer.status.StatusMessageMetadataTest"
+    ],
+    "integration": [
+      "br.com.datum.customer.api.CustomerApiIT",
+      "br.com.datum.customer.api.CustomerQueryIT",
+      "br.com.datum.customer.api.CustomerScoreIT",
+      "br.com.datum.customer.api.OpenApiContractIT",
+      "br.com.datum.customer.infrastructure.outbox.CustomerOutboxIT",
+      "br.com.datum.customer.infrastructure.persistence.CustomerPersistenceIT",
+      "br.com.datum.customer.infrastructure.persistence.DatabaseResilienceIT",
+      "br.com.datum.customer.status.CustomerStatusChangeIT"
+    ]
+  },
+  "customer-notification-service": {
+    "fast": [
+      "br.com.datum.notification.ConfirmedNotificationRetrySenderTest",
+      "br.com.datum.notification.CreatedDeliveryHandlerTest",
+      "br.com.datum.notification.CreatedMessageMetadataTest",
+      "br.com.datum.notification.CustomerCreatedCodecTest",
+      "br.com.datum.notification.CustomerNotificationServiceApplicationTest",
+      "br.com.datum.notification.observability.CorrelationContextTest",
+      "br.com.datum.notification.observability.MessageObservationTest",
+      "br.com.datum.notification.observability.MetricsSecurityTest"
+    ],
+    "integration": [
+      "br.com.datum.notification.DatabaseResilienceIT",
+      "br.com.datum.notification.NotificationConsumerIT"
+    ]
+  }
+}
