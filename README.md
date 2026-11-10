@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. Mensageria e orquestração completa permanecem pendentes. O serviço de notificações ainda não está conectado ao banco.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. A integração de Score na API, mensageria e orquestração completa permanecem pendentes. O serviço de notificações ainda não está conectado ao banco.
 
 ## Decisões da base
 
@@ -652,6 +652,87 @@ curl -i -H "Authorization: Bearer $TOKEN_ADMIN" -X POST http://localhost:8080/cu
 ```
 
 Esperado: 401, 200, 403 e 201 (ou 409 se já cadastrado), nessa ordem. A T04.2 não altera migrations nem credenciais de banco e não publica eventos; mensageria permanece nas próximas etapas.
+
+## Provedor externo de Score simulado (T05.1)
+
+O WireMock representa a dependência HTTP externa `GET /scores/{cpf}`. Nesta etapa, ele pode ser testado isoladamente; o endpoint público `GET /customers/{id}/score` será implementado na T05.2. Nenhuma alteração em Java, banco ou autenticação é necessária para testar o provedor.
+
+Usamos a [imagem oficial do WireMock](https://wiremock.org/docs/standalone/docker/), fixada em `3.13.2`. Os mappings e corpos em `infra/wiremock/` são montados somente para leitura. A porta padrão é `18082`, publicada exclusivamente em loopback. Dentro da rede Compose, o endereço do provedor é `http://wiremock:8080`.
+
+### Iniciar e verificar
+
+Na raiz do projeto, com Docker ativo e o `.env` já utilizado nas etapas anteriores:
+
+```sh
+docker compose up -d --wait wiremock
+docker compose ps wiremock
+python3 infra/wiremock/verify.py
+```
+
+Resultado esperado: serviço `healthy` e **14 verificações aprovadas**. O script confere saúde, contratos de sucesso, falhas, JSON inválido, atraso, timeout do cliente, resposta para requisições sem fixture e ausência de armazenamento no journal. Ele usa apenas Python padrão e Docker Compose, aceita somente URL de loopback e não acessa a API nem o banco de clientes. Não imprime CPFs ou corpos das respostas.
+
+`WIREMOCK_PORT` tem default no Compose; não é necessário substituir seu `.env` existente. Se precisar mudar a porta, acrescente, por exemplo, `WIREMOCK_PORT=18083` ao `.env` e recrie apenas esse serviço. O script obtém a porta pela configuração efetiva do Compose. Também aceita endereço explícito:
+
+```sh
+python3 infra/wiremock/verify.py --base-url http://localhost:18082
+```
+
+### Cenários fixos de demonstração
+
+Todos os CPFs abaixo são dados fictícios de teste com dígitos verificadores válidos. Os números e classificações são fixtures; não representam uma regra de negócio que calcule classificação a partir do score.
+
+| CPF fictício | HTTP do provedor | Resposta/cenário |
+|---|---|---|
+| `16899535009` | 200 | score 750, `LOW_RISK` |
+| `39053344705` | 200 | score 450, `MEDIUM_RISK` |
+| `93541134780` | 200 | score 150, `HIGH_RISK` |
+| `52998224725` | 404 | `SCORE_NOT_FOUND` |
+| `11144477735` | 500 | `PROVIDER_ERROR` |
+| `12345678909` | 503 | `PROVIDER_UNAVAILABLE` |
+| `98765432100` | 200 | Corpo JSON incompleto, deliberadamente inválido |
+| `01234567890` | 200 após 3000 ms | score 650, `LOW_RISK` |
+
+A resposta válida tem o formato:
+
+```json
+{"cpf":"16899535009","score":750,"classification":"LOW_RISK"}
+```
+
+Os dois primeiros CPFs correspondem aos exemplos Ana Silva e Ana Souza da T03.3. Não é preciso cadastrar clientes para consultar diretamente o WireMock. CPF sem fixture, rota inexistente e método diferente de GET recebem 404 com `STUB_NOT_FOUND`; esse retorno indica ausência de fixture, enquanto `SCORE_NOT_FOUND` simula uma resposta de negócio do provedor.
+
+Os códigos acima pertencem ao provedor simulado. O mapeamento para os erros públicos da API, seus timeouts e limites de retry serão definidos na integração T05.2. O timeout de 300 ms do script demonstra somente a interrupção da espera pelo stub lento, sem antecipar a configuração do cliente Java. A alternativa seria alternar um cenário global do WireMock; fixtures por CPF permitem reproduzir sucesso e falhas simultaneamente, sem mudar o estado do servidor.
+
+### Conferência manual
+
+```sh
+curl -i http://localhost:18082/__admin/health
+curl -i http://localhost:18082/scores/16899535009
+curl -i http://localhost:18082/scores/52998224725
+curl -i http://localhost:18082/scores/12345678909
+curl -i http://localhost:18082/scores/98765432100
+curl -i --max-time 1 http://localhost:18082/scores/01234567890
+```
+
+Esperado: saúde 200, sucesso 200, erro 404, indisponibilidade 503, HTTP 200 com JSON incompleto e, por último, erro de timeout do curl (código de saída 28). O atraso é configurado por [fixedDelayMilliseconds](https://wiremock.org/docs/simulating-faults/) no mapping; sem `--max-time`, esse cenário retorna 200 após cerca de três segundos.
+
+### Logs e recarga das fixtures
+
+O Compose usa `--disable-request-logging` e `--no-request-journal`, conforme as [opções oficiais do WireMock](https://wiremock.org/docs/standalone/java-jar/), para evitar registrar URLs com CPF e armazenar requisições/headers. Uma resposta genérica para requisições sem fixture evita a página padrão de diagnóstico, que poderia reproduzir a URL recebida. A interface administrativa permanece local e não deve receber tokens reais da API; os testes diretos do provedor não precisam de autenticação.
+
+Nesta versão, consultar `/__admin/requests` com journal desligado retorna HTTP 500 com `RequestJournalDisabledException`. O script reconhece essa resposta administrativa específica como confirmação da configuração; o healthcheck e os endpoints simulados continuam funcionando normalmente.
+
+Depois de alterar fixtures, recarregue somente o WireMock e execute novamente a verificação:
+
+```sh
+docker compose up -d --force-recreate --wait wiremock
+python3 infra/wiremock/verify.py
+```
+
+Para pará-lo sem afetar PostgreSQL/Keycloak:
+
+```sh
+docker compose stop wiremock
+```
 
 ## Fluxo de desenvolvimento
 

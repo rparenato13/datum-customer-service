@@ -1,0 +1,10 @@
+{
+  "name": "Score de demonstracao - risco alto",
+  "priority": 10,
+  "request": {"method": "GET", "urlPath": "/scores/93541134780"},
+  "response": {
+    "status": 200,
+    "headers": {"Content-Type": "application/json"},
+    "bodyFileName": "score-high-risk.json"
+  }
+}

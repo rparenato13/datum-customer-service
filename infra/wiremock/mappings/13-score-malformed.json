@@ -1,0 +1,10 @@
+{
+  "name": "JSON invalido do provedor",
+  "priority": 10,
+  "request": {"method": "GET", "urlPath": "/scores/98765432100"},
+  "response": {
+    "status": 200,
+    "headers": {"Content-Type": "application/json"},
+    "bodyFileName": "score-malformed.txt"
+  }
+}

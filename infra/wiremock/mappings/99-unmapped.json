@@ -1,0 +1,10 @@
+{
+  "name": "Resposta generica para requisicoes sem fixture",
+  "priority": 1000,
+  "request": {"method": "ANY", "urlPattern": ".*"},
+  "response": {
+    "status": 404,
+    "headers": {"Content-Type": "application/json"},
+    "jsonBody": {"code": "STUB_NOT_FOUND"}
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Score nao encontrado no provedor",
+  "priority": 10,
+  "request": {"method": "GET", "urlPath": "/scores/52998224725"},
+  "response": {
+    "status": 404,
+    "headers": {"Content-Type": "application/json"},
+    "jsonBody": {"code": "SCORE_NOT_FOUND"}
+  }
+}

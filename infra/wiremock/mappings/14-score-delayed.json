@@ -1,0 +1,11 @@
+{
+  "name": "Score com atraso fixo de tres segundos",
+  "priority": 10,
+  "request": {"method": "GET", "urlPath": "/scores/01234567890"},
+  "response": {
+    "status": 200,
+    "fixedDelayMilliseconds": 3000,
+    "headers": {"Content-Type": "application/json"},
+    "bodyFileName": "score-delayed.json"
+  }
+}

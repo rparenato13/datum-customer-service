@@ -1,0 +1,10 @@
+{
+  "name": "Provedor temporariamente indisponivel",
+  "priority": 10,
+  "request": {"method": "GET", "urlPath": "/scores/12345678909"},
+  "response": {
+    "status": 503,
+    "headers": {"Content-Type": "application/json"},
+    "jsonBody": {"code": "PROVIDER_UNAVAILABLE"}
+  }
+}

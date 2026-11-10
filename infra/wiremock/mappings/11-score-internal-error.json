@@ -1,0 +1,10 @@
+{
+  "name": "Falha interna do provedor",
+  "priority": 10,
+  "request": {"method": "GET", "urlPath": "/scores/11144477735"},
+  "response": {
+    "status": 500,
+    "headers": {"Content-Type": "application/json"},
+    "jsonBody": {"code": "PROVIDER_ERROR"}
+  }
+}
