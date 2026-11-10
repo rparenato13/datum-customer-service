@@ -11,7 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from model import compose_config, definition_file, definitions
+from model import compose_config, stored_definitions, definitions
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -25,7 +25,7 @@ def main():
     options, compose_arguments = parser.parse_known_args()
     config = compose_config(compose_arguments)
     service = config["services"]["rabbitmq"]
-    stored = json.loads(definition_file(config).read_text())
+    stored = stored_definitions(compose_arguments)
     expected = definitions(service["environment"], stored)
     if stored != expected:
         raise ValueError("Definitions locais divergem do contrato/.env; execute configure.py.")

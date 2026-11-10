@@ -47,9 +47,12 @@ def password_matches(password, encoded):
         return False
 
 
-def definition_file(config):
-    return Path(next(volume["source"] for volume in config["services"]["rabbitmq"]["volumes"]
-                     if volume.get("target") == "/etc/rabbitmq/definitions.json"))
+def stored_definitions(arguments):
+    result = subprocess.run(["docker", "compose", *arguments, "exec", "-T", "rabbitmq", "cat",
+                             "/etc/rabbitmq/bootstrap/definitions.json"], cwd=ROOT, capture_output=True, timeout=30)
+    if result.returncode:
+        raise ValueError("Definitions do volume indisponiveis; confira o broker e o job de bootstrap.")
+    return json.loads(result.stdout)
 
 
 def definitions(environment, previous=None):

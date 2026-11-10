@@ -43,7 +43,7 @@ class Environment:
     def __init__(self, image_tag="t11", app_profiles=None, app_documentation=False):
         if type(app_documentation) is not bool:
             raise ValueError("Configuracao de documentacao de teste invalida.")
-        if image_tag not in ("t11", "t12", "t13") or app_profiles not in (None, "observability"):
+        if image_tag not in ("t11", "t12", "t13", "t14") or app_profiles not in (None, "observability"):
             raise ValueError("Configuracao de teste nao prevista.")
         self.image_tag = image_tag
         self.app_profiles = app_profiles

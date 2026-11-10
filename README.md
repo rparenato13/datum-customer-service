@@ -5,9 +5,31 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 - `customer-service`: responsável pelo domínio de clientes e pela integração HTTP direta com o provedor externo de Score.
 - `customer-notification-service`: responsável pelo consumo de eventos de criação e registro de notificações simuladas, com armazenamento próprio.
 
+## Quickstart — solução completa (T14)
+
+Com Docker/BuildKit e Compose v2 ou posterior ativos, use o `.env` existente. Em um clone novo, copie `.env.example` para `.env` e revise as credenciais de demonstração. Preserve as credenciais de volumes já utilizados. Libere as portas 8080/8081 dos JARs anteriores ou ajuste `CUSTOMER_HTTP_PORT`/`NOTIFICATION_HTTP_PORT`.
+
+Na raiz do projeto, a subida completa é:
+
+```sh
+docker compose up --build -d
+```
+
+Não é necessário instalar Java, Maven ou Python no host para esse comando. O Compose constrói as duas imagens, gera automaticamente as definições do RabbitMQ e inicia PostgreSQL, RabbitMQ, Keycloak, WireMock e os dois serviços Java. Confira a convergência:
+
+```sh
+docker compose ps -a
+curl -i http://localhost:8080/actuator/health
+curl -i http://localhost:8081/actuator/health
+```
+
+Os seis serviços ficam `healthy`, e `rabbitmq-init` termina com `Exited (0)`. Os dois curls devem responder 200/UP. Swagger está em [localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html); Keycloak em [localhost:18090](http://localhost:18090/); RabbitMQ Management em [localhost:15672](http://localhost:15672/). Todas as portas são publicadas somente em loopback.
+
+O [runbook T14](infra/compose/README.md) detalha portas, credenciais, issuer/JWKS, limites de memória, observabilidade, diagnóstico e o verificador descartável. Para parar preservando os dados, use `docker compose down`. **`docker compose down -v` remove volumes e todos os dados locais desse projeto.**
+
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. T09: consumidor de criação com inbox e notificação simulada transacionais em banco próprio, retries e DLQ. T10: Swagger UI/OpenAPI com autenticação Bearer, schemas, exemplos e respostas por operação. T11: limites de banco e suíte reproduzível de falhas distribuídas em ambiente descartável. T12: logs JSON UTC, correlação HTTP/Score/outbox/consumidores, métricas protegidas e diagnóstico de performance. T13: matriz de cenários, execução consolidada com conferência de evidências e smoke da jornada completa entre serviços. A orquestração completa permanece pendente.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. T09: consumidor de criação com inbox e notificação simulada transacionais em banco próprio, retries e DLQ. T10: Swagger UI/OpenAPI com autenticação Bearer, schemas, exemplos e respostas por operação. T11: limites de banco e suíte reproduzível de falhas distribuídas em ambiente descartável. T12: logs JSON UTC, correlação HTTP/Score/outbox/consumidores, métricas protegidas e diagnóstico de performance. T13: matriz de cenários, execução consolidada com conferência de evidências e smoke da jornada completa entre serviços. T14: Compose completo com bootstrap automático, healthchecks, recursos configuráveis e persistência verificada entre down/up.
 
 ## Decisões da base
 
@@ -20,6 +42,8 @@ A T06 tem **contratos aprovados pelo responsável pelo projeto em 10/11/2026**, 
 - Spring MVC e Actuator: servidor HTTP e verificação operacional de saúde. No serviço de notificações, HTTP atende somente à operação; seu processamento de negócio é assíncrono.
 
 ## Pré-requisitos
+
+Para desenvolver e executar testes diretamente no host:
 
 - JDK 21, com `JAVA_HOME` apontando para essa versão.
 - Acesso ao Maven Central na primeira execução para baixar Maven e dependências.
@@ -69,6 +93,8 @@ Os cenários de consulta conferem ordenação e limites das páginas, contagem s
 No Java 21, o suporte de testes do Mockito pode emitir um aviso sobre carregamento dinâmico de agente. Esse aviso foi observado na validação inicial, com os dois testes aprovados; confira os contadores de falhas e o resultado final do build.
 
 ## Testar manualmente os serviços
+
+Esta é uma alternativa ao Compose completo. Para executar JARs nas mesmas portas, pare os containers Java com `docker compose stop customer-service customer-notification-service`, mantendo as dependências ativas.
 
 Depois do build, prepare PostgreSQL e Keycloak pelas seções T02.1/T04.1 (`docker compose up -d --wait postgres keycloak`). Encerre instâncias antigas antes de usar as mesmas portas. Abra dois terminais na raiz e configure Java 21 em ambos. No primeiro, configure as variáveis do `customer-service`:
 
@@ -135,8 +161,8 @@ O valor fica na variável do terminal, sem ser incluído no comando salvo no his
 Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos de build indica o contexto da raiz, necessário para acessar o POM pai e os POMs dos módulos.
 
 ```sh
-docker build -f customer-service/Dockerfile -t datum/customer-service:t12 .
-docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t12 .
+docker build -f customer-service/Dockerfile -t datum/customer-service:t14 .
+docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t14 .
 ```
 
 Cada Dockerfile tem dois estágios:
@@ -153,15 +179,15 @@ Prepare PostgreSQL/Keycloak/WireMock/RabbitMQ pelo Compose e exporte `CUSTOMER_D
 ```sh
 python3 infra/rabbitmq/configure.py
 docker compose up -d --wait postgres keycloak wiremock rabbitmq
-docker run -d --rm --name datum-customer-t12 --network datum_default --env CUSTOMER_DOCS_ENABLED --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 --env CUSTOMER_RABBITMQ_HOST=rabbitmq --env CUSTOMER_RABBITMQ_PORT=5672 --env CUSTOMER_RABBITMQ_PASSWORD -p 127.0.0.1:18080:8080 datum/customer-service:t12
-docker run -d --rm --name datum-notification-t12 --network datum_default --env NOTIFICATION_DB_URL=jdbc:postgresql://postgres:5432/notification_db --env NOTIFICATION_DB_PASSWORD --env NOTIFICATION_RABBITMQ_HOST=rabbitmq --env NOTIFICATION_RABBITMQ_PORT=5672 --env NOTIFICATION_RABBITMQ_PASSWORD -p 127.0.0.1:18081:8081 datum/customer-notification-service:t12
+docker run -d --rm --name datum-customer-t14 --network datum_default --env CUSTOMER_DOCS_ENABLED --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 --env CUSTOMER_RABBITMQ_HOST=rabbitmq --env CUSTOMER_RABBITMQ_PORT=5672 --env CUSTOMER_RABBITMQ_PASSWORD -p 127.0.0.1:18080:8080 datum/customer-service:t14
+docker run -d --rm --name datum-notification-t14 --network datum_default --env NOTIFICATION_DB_URL=jdbc:postgresql://postgres:5432/notification_db --env NOTIFICATION_DB_PASSWORD --env NOTIFICATION_RABBITMQ_HOST=rabbitmq --env NOTIFICATION_RABBITMQ_PORT=5672 --env NOTIFICATION_RABBITMQ_PASSWORD -p 127.0.0.1:18081:8081 datum/customer-notification-service:t14
 ```
 
 As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
 
 ```sh
-docker logs datum-customer-t12
-docker logs datum-notification-t12
+docker logs datum-customer-t14
+docker logs datum-notification-t14
 curl -i http://localhost:18080/actuator/health
 curl -i http://localhost:18081/actuator/health
 ```
@@ -171,14 +197,14 @@ Critério de validação: ambos respondem HTTP 200 com `{"status":"UP"}`. Se o `
 Confira o usuário dos processos:
 
 ```sh
-docker exec datum-customer-t12 id
-docker exec datum-notification-t12 id
+docker exec datum-customer-t14 id
+docker exec datum-notification-t14 id
 ```
 
 Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
 
 ```sh
-docker stop datum-customer-t12 datum-notification-t12
+docker stop datum-customer-t14 datum-notification-t14
 ```
 
 O `--rm` remove os containers das aplicações após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos. O PostgreSQL permanece ativo até `docker compose down`. Dentro da rede `datum_default`, a aplicação usa `postgres:5432`; no host, usa `localhost:15432`.
@@ -857,15 +883,13 @@ A imagem oficial está fixada em `rabbitmq:4.4.0-management`, com suporte a quor
 Na raiz, usando o `.env` já existente:
 
 ```sh
-python3 infra/rabbitmq/configure.py
-python3 infra/rabbitmq/configure.py --check
-docker compose up -d --wait rabbitmq
+docker compose up --build -d --wait rabbitmq
 python3 infra/rabbitmq/verify.py
 ```
 
-O primeiro comando cria `.local/rabbitmq/definitions.json`, com hashes SHA-256 e salt aleatório no formato do RabbitMQ. O diretório é local, privado e ignorado pelo Git/Docker build; senhas em texto aberto não são gravadas no arquivo. Execuções repetidas com os mesmos dados preservam os hashes e o arquivo. O broker importa esse arquivo no boot, montado somente para leitura. O arquivo precisa existir antes do `up`; o Compose não cria um diretório no lugar dele se estiver ausente.
+O Compose executa automaticamente `rabbitmq-init`, que gera as definitions em um volume nomeado com hashes SHA-256 e salt aleatório no formato do RabbitMQ. O modelo deriva do contrato aprovado; não há arquivo local obrigatório nem Python no host para subir o broker. Ele importa o volume montado somente para leitura no boot. Execuções com as mesmas credenciais preservam conteúdo e hashes. A importação mantém mensagens e recursos existentes.
 
-Há defaults de demonstração no Compose para as novas variáveis: não sobrescreva o `.env` existente com `.env.example`. Você pode personalizá-las antes da primeira inicialização. `configure.py` usa Python padrão e a configuração efetiva do Compose, sem acessar o broker. `--check` confere o arquivo sem modificá-lo.
+Preserve o `.env` existente. `python3 infra/rabbitmq/configure.py` continua disponível como comando operacional opcional e executa o mesmo job; `--check` compara o conteúdo do volume sem alterá-lo. O antigo arquivo `.local/rabbitmq/definitions.json` não é mais utilizado. Detalhes de inicialização e persistência estão no [runbook T14](infra/compose/README.md).
 
 O verificador faz somente GETs administrativos: **38 verificações**, sem publicar, consumir, purgar mensagens ou exigir filas vazias. Confere versão, saúde, vhost, contas, ACLs de recursos/tópicos, exchanges, filas quorum, policies e bindings. Senhas e hashes não são impressos. Falhas exibem um diagnóstico sanitizado. Endereço alternativo de Management deve ser de loopback:
 
@@ -939,7 +963,7 @@ Para esperar também pelos TTLs reais de 30 e 120 segundos, rode a variante comp
 infra/rabbitmq/.venv/bin/python infra/rabbitmq/smoke.py --all-retries
 ```
 
-A transferência de uma mensagem com o DLX funcionando não comprova todos os casos de falha possíveis. Perda de conexão entre confirm/ACK, destino indisponível, saturação, delivery-limit sob crashes e deduplicação transacional continuarão sendo verificados com as aplicações nas T07.2/T08/T09/T11. O RabbitMQ disponível nesta etapa não implica que cadastros antigos já tenham eventos.
+A transferência de uma mensagem com o DLX funcionando não comprova todos os casos de falha possíveis. Perda de conexão entre confirm/ACK, destino indisponível, saturação, delivery-limit sob crashes e deduplicação transacional possuem verificações específicas nas suítes de aplicação e de resiliência. O RabbitMQ disponível nesta etapa não implica que cadastros antigos já tenham eventos.
 
 Referências: [imagem oficial](https://github.com/docker-library/official-images/blob/master/library/rabbitmq), [importação de definitions](https://www.rabbitmq.com/docs/definitions), [credenciais e hashes](https://www.rabbitmq.com/docs/passwords), [permissões](https://www.rabbitmq.com/docs/access-control).
 
@@ -1315,7 +1339,7 @@ Com Java 21, Docker ativo e a `.venv` do RabbitMQ preparada, execute:
 infra/rabbitmq/.venv/bin/python infra/testing/run.py --suite all
 ```
 
-Esse comando executa os 548 testes Maven, as verificações de contratos/coletores/executor e o smoke em ambiente descartável. O smoke emite tokens USER/ADMIN pelo Keycloak real e verifica HTTP, PostgreSQL, Score, publicação, consumidores, duplicatas, conflito de versão, DLQ e exclusão lógica. Os dois serviços Java são imagens `:t13`, iniciadas na rede das dependências Compose; o quickstart com todos os serviços no Compose principal permanece na T14.
+Esse comando executa os 548 testes Maven, as verificações de contratos/coletores/executor e o smoke em ambiente descartável. O smoke emite tokens USER/ADMIN pelo Keycloak real e verifica HTTP, PostgreSQL, Score, publicação, consumidores, duplicatas, conflito de versão, DLQ e exclusão lógica. Os dois serviços Java são imagens `:t13`, iniciadas na rede das dependências Compose; o quickstart com todos os serviços no Compose principal está disponível na T14.
 
 Para escolher uma camada: `--suite fast`, `--suite integration` ou `--suite smoke`. As duas primeiras usam Maven `clean verify`, com `-Pintegration` na segunda; o smoke pode ser repetido com `--skip-build` somente se as imagens forem da mesma revisão. Cada execução gera um resumo e logs privados em `.local/testing/`, ignorados pelo Git. O executor para na primeira falha, sem aprovar resultados parciais ou usar relatórios anteriores como evidência. A limpeza do smoke atua somente nos recursos criados por ele.
 

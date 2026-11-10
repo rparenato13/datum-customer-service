@@ -17,6 +17,10 @@ WORKDIR /app
 
 COPY --from=build --chown=app:app /workspace/customer-notification-service/target/customer-notification-service-*.jar ./app.jar
 
+COPY --chown=app:app --chmod=755 infra/health/application.sh /app/healthcheck
+ENV SERVER_PORT=8081
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=12 CMD ["/app/healthcheck"]
+
 USER app:app
 EXPOSE 8081
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

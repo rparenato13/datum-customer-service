@@ -113,7 +113,8 @@ def execute(options, directory, report):
         total = sum(suite["tests"] for suite in report["junit"])
         print("OK: " + str(total) + " testes Maven, sem falhas, erros ou skips; classes conferidas.", flush=True)
         run_step("contracts", [sys.executable, str(ROOT / "contracts/events/verify.py")], directory, steps)
-        for folder, name in [("infra/observability", "collector-tests"), ("infra/testing", "runner-tests")]:
+        for folder, name in [("infra/observability", "collector-tests"), ("infra/testing", "runner-tests"),
+                             ("infra/rabbitmq", "bootstrap-tests")]:
             run_step(name, [sys.executable, "-m", "unittest", "discover", "-s", folder, "-p", "test_*.py"], directory, steps)
     if options.suite in ("smoke", "all"):
         proof = directory / "smoke.json"

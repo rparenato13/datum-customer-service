@@ -111,10 +111,10 @@ def main():
         print("Ambiente descartavel: " + project, flush=True)
         try:
             run([sys.executable, "infra/rabbitmq/configure.py", *compose_arguments])
-            generated = Path(env["RABBITMQ_DEFINITIONS_FILE"])
-            original = generated.read_bytes()
+            read_definitions = compose + ["run", "--rm", "--no-deps", "--entrypoint", "cat", "rabbitmq-init", "/output/definitions.json"]
+            original = run(read_definitions)
             run([sys.executable, "infra/rabbitmq/configure.py", *compose_arguments])
-            check(generated.read_bytes() == original, "Provisionamento idempotente preserva hashes e arquivo.")
+            check(run(read_definitions) == original, "Provisionamento idempotente preserva hashes e arquivo do volume.")
             run(compose + ["up", "-d", "--wait", "--wait-timeout", "180", "rabbitmq"])
             print(run([sys.executable, "infra/rabbitmq/verify.py", *compose_arguments]), end="", flush=True)
 
@@ -203,7 +203,7 @@ def main():
             check(not pending, "Todas as filas de retry selecionadas expiraram dentro do prazo de teste.")
             print(run([sys.executable, "infra/rabbitmq/verify.py", *compose_arguments]), end="", flush=True)
             logs = run(compose + ["logs", "--no-color", "rabbitmq"])
-            stored = json.loads(generated.read_text())
+            stored = json.loads(run(read_definitions))
             check(not any(env[key] in logs for key in USERS.values())
                   and not any(user["password_hash"] in logs for user in stored["users"]),
                   "Logs do broker sem senhas ou hashes dos testes.")

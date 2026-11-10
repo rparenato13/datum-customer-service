@@ -15,7 +15,7 @@ infra/rabbitmq/.venv/bin/python -m pip install -r infra/rabbitmq/requirements-te
 
 | Camada | Comando | O que executa |
 |---|---|---|
-| Rápida | `infra/rabbitmq/.venv/bin/python infra/testing/run.py --suite fast` | Maven `clean verify`, 139 verificações de contratos, quatro testes do coletor e 11 do executor; sem Docker |
+| Rápida | `infra/rabbitmq/.venv/bin/python infra/testing/run.py --suite fast` | Maven `clean verify`, 139 verificações de contratos, quatro testes do coletor, 11 do executor e sete do bootstrap RabbitMQ; sem Docker |
 | Integração | `infra/rabbitmq/.venv/bin/python infra/testing/run.py --suite integration` | Maven `-Pintegration clean verify`, incluindo os rápidos, e as mesmas verificações Python |
 | Smoke | `infra/rabbitmq/.venv/bin/python infra/testing/run.py --suite smoke` | Build de duas imagens `:t13` e jornada completa em ambiente descartável |
 | Completa | `infra/rabbitmq/.venv/bin/python infra/testing/run.py --suite all` | Integração + verificações Python + smoke, executando o Maven uma única vez |
@@ -49,6 +49,7 @@ Os links abaixo apontam para as classes de teste. Testes parametrizados expandem
 | OpenAPI | Schema/respostas por operação, exemplos executados com banco/segurança/provedor, UI pública e desativação explícita | [OpenApiContractIT](../../customer-service/src/test/java/br/com/datum/customer/api/OpenApiContractIT.java), [OpenApiDocumentationTest](../../customer-service/src/test/java/br/com/datum/customer/api/OpenApiDocumentationTest.java), [OpenApiDisabledTest](../../customer-service/src/test/java/br/com/datum/customer/api/OpenApiDisabledTest.java) |
 | Observabilidade | Correlation ID validado, MDC restaurado inclusive em falhas, headers HTTP/AMQP e retries, métricas protegidas, ausência de IDs em labels, SQL medido sem parâmetros, pool/JPA reais | [Testes de observabilidade de clientes](../../customer-service/src/test/java/br/com/datum/customer/observability), [de notificações](../../customer-notification-service/src/test/java/br/com/datum/notification/observability), [CustomerOutboxIT](../../customer-service/src/test/java/br/com/datum/customer/infrastructure/outbox/CustomerOutboxIT.java) |
 | Jornada operacional | Dependências saudáveis, health sanitizado, PKCE real, USER/ADMIN, Swagger/OpenAPI, CRUD/consulta/filtro/Score, entrega de criação, replay, status, duplicata, conflito/DLQ, payload inválido, exclusão lógica e privacidade de logs | [Smoke T13](smoke.py) |
+| Bootstrap Compose | Geração sem senha aberta, idempotência, validação sem escrita, senha ausente/alterada, escrita atômica e arquivo inválido preservado | [test_bootstrap.py](../rabbitmq/test_bootstrap.py); [verificador T14](../compose/verify.py) para subida, volumes, issuer e persistência |
 | Evidência do executor | XML ausente/antigo/inconsistente, classes ausentes/duplicadas/novas, falhas/skips/reruns, falha do subprocesso, logs privados e ausência de prova de limpeza | [test_runner.py](test_runner.py) |
 
 As classes HTTP rápidas usam uma aplicação sem persistência, com `CustomerService` substituído apenas nesses testes. Os casos HTTP de integração usam o banco e a segurança reais. Os testes negativos de JWT usam pares de chaves exclusivos de teste e um JWKS local; não desligam a verificação de assinatura. O smoke usa o Keycloak em container para emitir tokens USER e ADMIN por Authorization Code + PKCE.
@@ -57,7 +58,7 @@ O manifesto [suites.json](suites.json) lista 24 classes rápidas e dez de integr
 
 ## O que o smoke faz
 
-O smoke reaproveita o ambiente fechado das T11/T12 com uma tag própria `:t13` e documentação habilitada apenas nesse teste. Cria um projeto Compose aleatório para PostgreSQL, RabbitMQ, Keycloak e WireMock, inicia as duas imagens Java na mesma rede com `docker run` e aguarda seus healthchecks. A configuração de demonstração do projeto não é alterada. A inclusão dos dois serviços Java no Compose principal e seu quickstart continuam na T14.
+O smoke reaproveita o ambiente fechado das T11/T12 com uma tag própria `:t13` e documentação habilitada apenas nesse teste. Cria um projeto Compose aleatório para PostgreSQL, RabbitMQ, Keycloak e WireMock, inicia as duas imagens Java na mesma rede com `docker run` e aguarda seus healthchecks. A configuração de demonstração do projeto não é alterada. O Compose completo e seu quickstart estão disponíveis no [runbook T14](../compose/README.md). O smoke T13 mantém seu ambiente isolado com as imagens iniciadas separadamente.
 
 A jornada usa dois clientes sintéticos fixos em bancos novos a cada execução. Publica status com a credencial restrita `status_publisher`; espera a inbox confirmar APPLIED, verifica a leitura HTTP e repete o mesmo evento para conferir DUPLICATE sem nova versão/updatedAt. Uma nova intenção com versão obsoleta deve produzir REJECTED/VERSION_CONFLICT e DLQ. Um payload com campo proibido deve chegar à DLQ sem escrita na inbox. O teste nunca interpreta publisher confirm como prova de aplicação.
 

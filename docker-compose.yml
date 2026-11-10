@@ -1,26 +1,46 @@
 name: datum
 
+x-rabbit-environment: &rabbit-environment
+  RABBITMQ_ADMIN_PASSWORD: ${RABBITMQ_ADMIN_PASSWORD:-rabbitmq_admin_local_only}
+  CUSTOMER_RABBITMQ_PASSWORD: ${CUSTOMER_RABBITMQ_PASSWORD:-customer_rabbitmq_local_only}
+  NOTIFICATION_RABBITMQ_PASSWORD: ${NOTIFICATION_RABBITMQ_PASSWORD:-notification_rabbitmq_local_only}
+  STATUS_PUBLISHER_RABBITMQ_PASSWORD: ${STATUS_PUBLISHER_RABBITMQ_PASSWORD:-status_publisher_local_only}
+
+x-app-environment: &app-environment
+  APP_ENVIRONMENT: ${APP_ENVIRONMENT:-local}
+  SPRING_PROFILES_ACTIVE: ${APP_PROFILES:-}
+  DB_SLOW_QUERY_THRESHOLD_MS: ${DB_SLOW_QUERY_THRESHOLD_MS:-250}
+
 services:
+  rabbitmq-init:
+    build:
+      context: .
+      dockerfile: infra/rabbitmq/bootstrap.Dockerfile
+    image: datum/rabbitmq-bootstrap:t14
+    environment: *rabbit-environment
+    volumes:
+      - rabbitmq_bootstrap:/output
+    network_mode: none
+    read_only: true
+    mem_limit: 128m
+    restart: "no"
+
   rabbitmq:
     image: rabbitmq:4.4.0-management
     hostname: rabbitmq
-    environment:
-      RABBITMQ_ADMIN_PASSWORD: ${RABBITMQ_ADMIN_PASSWORD:-rabbitmq_admin_local_only}
-      CUSTOMER_RABBITMQ_PASSWORD: ${CUSTOMER_RABBITMQ_PASSWORD:-customer_rabbitmq_local_only}
-      NOTIFICATION_RABBITMQ_PASSWORD: ${NOTIFICATION_RABBITMQ_PASSWORD:-notification_rabbitmq_local_only}
-      STATUS_PUBLISHER_RABBITMQ_PASSWORD: ${STATUS_PUBLISHER_RABBITMQ_PASSWORD:-status_publisher_local_only}
+    environment: *rabbit-environment
+    depends_on:
+      rabbitmq-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    mem_limit: ${RABBITMQ_MEMORY_LIMIT:-1g}
     ports:
       - "127.0.0.1:${RABBITMQ_AMQP_PORT:-15673}:5672"
       - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-datum.conf:ro
-      - type: bind
-        source: ${RABBITMQ_DEFINITIONS_FILE:-./.local/rabbitmq/definitions.json}
-        target: /etc/rabbitmq/definitions.json
-        read_only: true
-        bind:
-          create_host_path: false
+      - rabbitmq_bootstrap:/etc/rabbitmq/bootstrap:ro
     healthcheck:
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
       interval: 10s
@@ -30,6 +50,8 @@ services:
 
   wiremock:
     image: wiremock/wiremock:3.13.2
+    restart: unless-stopped
+    mem_limit: ${WIREMOCK_MEMORY_LIMIT:-512m}
     command: ["--disable-request-logging", "--no-request-journal"]
     ports:
       - "127.0.0.1:${WIREMOCK_PORT:-18082}:8080"
@@ -45,6 +67,8 @@ services:
 
   postgres:
     image: postgres:17.11-bookworm
+    restart: unless-stopped
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-768m}
     environment:
       POSTGRES_USER: datum_admin
       POSTGRES_DB: postgres
@@ -66,6 +90,8 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.2
+    restart: unless-stopped
+    mem_limit: ${KEYCLOAK_MEMORY_LIMIT:-1g}
     command: ["start-dev", "--import-realm"]
     environment:
       KC_DB: dev-file
@@ -95,7 +121,104 @@ services:
       retries: 30
       start_period: 30s
 
+  customer-service:
+    build:
+      context: .
+      dockerfile: customer-service/Dockerfile
+    image: datum/customer-service:t14
+    restart: unless-stopped
+    mem_limit: ${CUSTOMER_MEMORY_LIMIT:-1g}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      wiremock:
+        condition: service_healthy
+    environment:
+      <<: *app-environment
+      SERVER_PORT: "8080"
+      JAVA_TOOL_OPTIONS: ${CUSTOMER_JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=60.0 -XX:ActiveProcessorCount=2}
+      CUSTOMER_DB_URL: jdbc:postgresql://postgres:5432/customer_db
+      CUSTOMER_DB_PASSWORD: ${CUSTOMER_DB_PASSWORD:?Configure CUSTOMER_DB_PASSWORD no .env}
+      CUSTOMER_RABBITMQ_HOST: rabbitmq
+      CUSTOMER_RABBITMQ_PORT: "5672"
+      CUSTOMER_RABBITMQ_PASSWORD: ${CUSTOMER_RABBITMQ_PASSWORD:-customer_rabbitmq_local_only}
+      CUSTOMER_DB_POOL_MAX_SIZE: ${CUSTOMER_DB_POOL_MAX_SIZE:-10}
+      CUSTOMER_DB_POOL_MIN_IDLE: ${CUSTOMER_DB_POOL_MIN_IDLE:-2}
+      CUSTOMER_DB_POOL_CONNECTION_TIMEOUT_MS: ${CUSTOMER_DB_POOL_CONNECTION_TIMEOUT_MS:-2000}
+      CUSTOMER_DB_POOL_VALIDATION_TIMEOUT_MS: ${CUSTOMER_DB_POOL_VALIDATION_TIMEOUT_MS:-1000}
+      CUSTOMER_DB_CONNECT_TIMEOUT_SECONDS: ${CUSTOMER_DB_CONNECT_TIMEOUT_SECONDS:-2}
+      CUSTOMER_DB_SOCKET_TIMEOUT_SECONDS: ${CUSTOMER_DB_SOCKET_TIMEOUT_SECONDS:-15}
+      CUSTOMER_DB_STATEMENT_TIMEOUT_MS: ${CUSTOMER_DB_STATEMENT_TIMEOUT_MS:-5000}
+      CUSTOMER_DB_LOCK_TIMEOUT_MS: ${CUSTOMER_DB_LOCK_TIMEOUT_MS:-2000}
+      CUSTOMER_DB_IDLE_TRANSACTION_TIMEOUT_MS: ${CUSTOMER_DB_IDLE_TRANSACTION_TIMEOUT_MS:-15000}
+      CUSTOMER_DB_TRANSACTION_TIMEOUT_SECONDS: ${CUSTOMER_DB_TRANSACTION_TIMEOUT_SECONDS:-10}
+      CUSTOMER_DB_USERNAME: customer_app
+      CUSTOMER_DOCS_ENABLED: ${CUSTOMER_DOCS_ENABLED:-true}
+      CUSTOMER_JWT_ISSUER_URI: http://localhost:${KEYCLOAK_PORT:-18090}/realms/datum
+      CUSTOMER_JWT_JWK_SET_URI: http://keycloak:8080/realms/datum/protocol/openid-connect/certs
+      CUSTOMER_JWT_AUDIENCE: customer-api
+      SCORE_BASE_URL: http://wiremock:8080
+      SCORE_CONNECT_TIMEOUT_MS: ${SCORE_CONNECT_TIMEOUT_MS:-500}
+      SCORE_READ_TIMEOUT_MS: ${SCORE_READ_TIMEOUT_MS:-1000}
+      SCORE_MAX_ATTEMPTS: ${SCORE_MAX_ATTEMPTS:-2}
+      SCORE_RETRY_DELAY_MS: ${SCORE_RETRY_DELAY_MS:-100}
+      OUTBOX_PUBLISHER_ENABLED: ${OUTBOX_PUBLISHER_ENABLED:-true}
+      OUTBOX_POLL_DELAY_MS: ${OUTBOX_POLL_DELAY_MS:-1000}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-10}
+      OUTBOX_CONFIRM_TIMEOUT_MS: ${OUTBOX_CONFIRM_TIMEOUT_MS:-5000}
+      OUTBOX_LEASE_MS: ${OUTBOX_LEASE_MS:-30000}
+      STATUS_CONSUMER_ENABLED: ${STATUS_CONSUMER_ENABLED:-true}
+      STATUS_CONSUMER_PREFETCH: ${STATUS_CONSUMER_PREFETCH:-10}
+      STATUS_CONSUMER_RECOVERY_DELAY_MS: ${STATUS_CONSUMER_RECOVERY_DELAY_MS:-5000}
+      STATUS_CONSUMER_CONFIRM_TIMEOUT_MS: ${STATUS_CONSUMER_CONFIRM_TIMEOUT_MS:-5000}
+    ports:
+      - "127.0.0.1:${CUSTOMER_HTTP_PORT:-8080}:8080"
+
+  customer-notification-service:
+    build:
+      context: .
+      dockerfile: customer-notification-service/Dockerfile
+    image: datum/customer-notification-service:t14
+    restart: unless-stopped
+    mem_limit: ${NOTIFICATION_MEMORY_LIMIT:-1g}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      <<: *app-environment
+      SERVER_PORT: "8081"
+      JAVA_TOOL_OPTIONS: ${NOTIFICATION_JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=60.0 -XX:ActiveProcessorCount=2}
+      NOTIFICATION_DB_URL: jdbc:postgresql://postgres:5432/notification_db
+      NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?Configure NOTIFICATION_DB_PASSWORD no .env}
+      NOTIFICATION_RABBITMQ_HOST: rabbitmq
+      NOTIFICATION_RABBITMQ_PORT: "5672"
+      NOTIFICATION_RABBITMQ_PASSWORD: ${NOTIFICATION_RABBITMQ_PASSWORD:-notification_rabbitmq_local_only}
+      NOTIFICATION_DB_POOL_MAX_SIZE: ${NOTIFICATION_DB_POOL_MAX_SIZE:-10}
+      NOTIFICATION_DB_POOL_MIN_IDLE: ${NOTIFICATION_DB_POOL_MIN_IDLE:-2}
+      NOTIFICATION_DB_POOL_CONNECTION_TIMEOUT_MS: ${NOTIFICATION_DB_POOL_CONNECTION_TIMEOUT_MS:-2000}
+      NOTIFICATION_DB_POOL_VALIDATION_TIMEOUT_MS: ${NOTIFICATION_DB_POOL_VALIDATION_TIMEOUT_MS:-1000}
+      NOTIFICATION_DB_CONNECT_TIMEOUT_SECONDS: ${NOTIFICATION_DB_CONNECT_TIMEOUT_SECONDS:-2}
+      NOTIFICATION_DB_SOCKET_TIMEOUT_SECONDS: ${NOTIFICATION_DB_SOCKET_TIMEOUT_SECONDS:-15}
+      NOTIFICATION_DB_STATEMENT_TIMEOUT_MS: ${NOTIFICATION_DB_STATEMENT_TIMEOUT_MS:-5000}
+      NOTIFICATION_DB_LOCK_TIMEOUT_MS: ${NOTIFICATION_DB_LOCK_TIMEOUT_MS:-2000}
+      NOTIFICATION_DB_IDLE_TRANSACTION_TIMEOUT_MS: ${NOTIFICATION_DB_IDLE_TRANSACTION_TIMEOUT_MS:-15000}
+      NOTIFICATION_DB_TRANSACTION_TIMEOUT_SECONDS: ${NOTIFICATION_DB_TRANSACTION_TIMEOUT_SECONDS:-10}
+      NOTIFICATION_CONSUMER_ENABLED: ${NOTIFICATION_CONSUMER_ENABLED:-true}
+      NOTIFICATION_CONSUMER_PREFETCH: ${NOTIFICATION_CONSUMER_PREFETCH:-10}
+      NOTIFICATION_CONSUMER_RECOVERY_DELAY_MS: ${NOTIFICATION_CONSUMER_RECOVERY_DELAY_MS:-5000}
+      NOTIFICATION_CONSUMER_CONFIRM_TIMEOUT_MS: ${NOTIFICATION_CONSUMER_CONFIRM_TIMEOUT_MS:-5000}
+      NOTIFICATION_MANAGEMENT_PASSWORD: ${NOTIFICATION_MANAGEMENT_PASSWORD:-notification_monitor_local_only}
+    ports:
+      - "127.0.0.1:${NOTIFICATION_HTTP_PORT:-8081}:8081"
+
 volumes:
+  rabbitmq_bootstrap:
   rabbitmq_data:
   postgres_data:
   keycloak_data:
