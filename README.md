@@ -2,12 +2,12 @@
 
 Solução para o desafio técnico Datum / DXC / Claro, organizada em dois serviços Spring Boot independentes:
 
-- `customer-service`: responsável pelo domínio de clientes e pela futura integração direta com o provedor externo de Score.
+- `customer-service`: responsável pelo domínio de clientes e pela integração HTTP direta com o provedor externo de Score.
 - `customer-notification-service`: responsável pelo futuro consumo de eventos de criação e registro de notificações simuladas, com armazenamento próprio.
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. A integração de Score na API, mensageria e orquestração completa permanecem pendentes. O serviço de notificações ainda não está conectado ao banco.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. Mensageria e orquestração completa permanecem pendentes. O serviço de notificações ainda não está conectado ao banco.
 
 ## Decisões da base
 
@@ -41,18 +41,20 @@ No Linux/Windows, configure `JAVA_HOME` para o JDK 21 instalado. No Windows, use
 
 Confirme Java 21 e Maven 3.9.9 na saída do Wrapper. O arquivo `.java-version` também indica Java 21 para quem usa jEnv; ele não substitui a configuração de `JAVA_HOME`.
 
-Resultado esperado: `BUILD SUCCESS`, 51 testes rápidos aprovados (48 de segurança, dois de clientes e um de notificações) e os arquivos:
+Resultado esperado: `BUILD SUCCESS`, 113 testes rápidos aprovados (48 de segurança, 62 do cliente HTTP/configuração de Score, dois de clientes e um de notificações) e os arquivos:
 
 - `customer-service/target/customer-service-0.0.1-SNAPSHOT.jar`
 - `customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar`
 
-Os testes rápidos verificam saúde, resposta segura para falha interna e a matriz de autenticação/autorização. O perfil de teste `smoke` exclui a persistência e substitui `CustomerService` por um mock somente nesses testes HTTP. A segurança permanece ativa: os JWTs são assinados com chaves exclusivas de teste, e o decoder de produção consulta um JWKS HTTP local. Não há decoder falso nem validação de assinatura desabilitada. Persistência e endpoints com banco real são verificados pelo perfil Maven `integration`, obrigatório para validar a T04.2:
+Os testes rápidos verificam saúde, resposta segura para falha interna, autenticação/autorização e o adaptador HTTP de Score com WireMock em porta aleatória. O perfil de teste `smoke` exclui a persistência e substitui `CustomerService` por um mock somente nesses testes HTTP. A segurança permanece ativa: os JWTs são assinados com chaves exclusivas de teste, e o decoder de produção consulta um JWKS HTTP local. Não há decoder falso nem validação de assinatura desabilitada. Persistência e endpoints com banco real são verificados pelo perfil Maven `integration`, obrigatório para validar a T05.2:
 
 ```sh
 ./mvnw -Pintegration clean verify
 ```
 
-Esse comando executa 51 testes rápidos e 134 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT` e 54 de listagem/busca em `CustomerQueryIT`, usando Testcontainers com PostgreSQL 17.11. Os testes HTTP de negócio passam pela segurança com JWT ADMIN assinado. O bootstrap é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir o Compose/Keycloak para a suíte Maven. O Docker precisa estar ativo para os testes com banco; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco local do DBeaver não recebe os dados dos testes.
+Esse comando executa 113 testes rápidos e 153 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT` e 19 do endpoint de Score em `CustomerScoreIT`, usando Testcontainers com PostgreSQL 17.11. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap é o mesmo de `infra/postgres/init/`, e a aplicação de teste conecta como `customer_app`, sem privilégios administrativos. Não é necessário subir o Compose/Keycloak/WireMock para a suíte Maven. O Docker precisa estar ativo para os testes com banco; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco local do DBeaver não recebe os dados dos testes.
+
+Score acrescenta 81 cenários: 49 do adaptador HTTP, 13 da configuração e 19 da API integrada. Eles verificam validação estrita do contrato (inclusive CPF divergente, campos ausentes, tipos incorretos, duplicidade de propriedades, JSON incompleto e corpo acima de 4 KiB), contagem de tentativas, recuperação de falha transitória, timeout antes dos headers e durante o corpo, conexão recusada, redirect bloqueado, interrupção, USER/ADMIN, 401/403/400/404/502/503/504 e ausência de CPF/token nos erros e logs. A integração carrega as mesmas fixtures de `infra/wiremock/`, verifica que clientes INACTIVE continuam consultáveis e que excluídos/inexistentes não chamam o provedor. A transação do banco termina antes da chamada HTTP; Score não é persistido.
 
 Os 48 casos de segurança cobrem todas as operações de clientes, USER sem escrita, ADMIN com leitura/escrita, 401/403, privacidade dos erros, sessão/Basic desabilitados e tokens malformados, sem assinatura, com chave/kid/algoritmo/issuer/audiência incorretos, expirados, com nbf futuro ou sem exp/sub. Roles ausentes, malformadas ou vindas de claims não autorizados não concedem acesso. As chaves privadas de teste são geradas em memória e o JWKS publica somente a chave pública.
 
@@ -124,7 +126,7 @@ O valor fica na variável do terminal, sem ser incluído no comando salvo no his
 Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos de build indica o contexto da raiz, necessário para acessar o POM pai e os POMs dos módulos.
 
 ```sh
-docker build -f customer-service/Dockerfile -t datum/customer-service:t04.2 .
+docker build -f customer-service/Dockerfile -t datum/customer-service:t05.2 .
 docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t01.2 .
 ```
 
@@ -137,18 +139,18 @@ Os dois POMs de módulos são copiados para permitir a leitura do agregador Mave
 
 O `.dockerignore` exclui `docs/`, histórico Git, saídas Maven, arquivos locais e `.env*` do contexto enviado ao Docker. Essa exclusão é independente do `.gitignore`.
 
-Prepare PostgreSQL/Keycloak pelo Compose e exporte `CUSTOMER_DB_PASSWORD` conforme o seu `.env`, como na execução Java. Inicie os containers:
+Prepare PostgreSQL/Keycloak/WireMock pelo Compose e exporte `CUSTOMER_DB_PASSWORD` conforme o seu `.env`, como na execução Java. Inicie os containers:
 
 ```sh
-docker compose up -d --wait postgres keycloak
-docker run -d --rm --name datum-customer-t04-2 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs -p 127.0.0.1:18080:8080 datum/customer-service:t04.2
+docker compose up -d --wait postgres keycloak wiremock
+docker run -d --rm --name datum-customer-t05-2 --network datum_default --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 -p 127.0.0.1:18080:8080 datum/customer-service:t05.2
 docker run -d --rm --name datum-notification-t01-2 -p 127.0.0.1:18081:8081 datum/customer-notification-service:t01.2
 ```
 
 As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
 
 ```sh
-docker logs datum-customer-t04-2
+docker logs datum-customer-t05-2
 docker logs datum-notification-t01-2
 curl -i http://localhost:18080/actuator/health
 curl -i http://localhost:18081/actuator/health
@@ -159,21 +161,21 @@ Critério de validação: ambos respondem HTTP 200 com `{"status":"UP"}`. Se o `
 Confira o usuário dos processos:
 
 ```sh
-docker exec datum-customer-t04-2 id
+docker exec datum-customer-t05-2 id
 docker exec datum-notification-t01-2 id
 ```
 
 Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
 
 ```sh
-docker stop datum-customer-t04-2 datum-notification-t01-2
+docker stop datum-customer-t05-2 datum-notification-t01-2
 ```
 
 O `--rm` remove os containers das aplicações após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos. O PostgreSQL permanece ativo até `docker compose down`. Dentro da rede `datum_default`, a aplicação usa `postgres:5432`; no host, usa `localhost:15432`.
 
 ## PostgreSQL local e isolamento de bancos (T02.1)
 
-O `docker-compose.yml` contém PostgreSQL e Keycloak. Os comandos desta seção iniciam somente o PostgreSQL. Execute na raiz do projeto:
+O `docker-compose.yml` contém PostgreSQL, Keycloak e WireMock. Os comandos desta seção iniciam somente o PostgreSQL. Execute na raiz do projeto:
 
 ```sh
 cp .env.example .env
@@ -655,7 +657,7 @@ Esperado: 401, 200, 403 e 201 (ou 409 se já cadastrado), nessa ordem. A T04.2 n
 
 ## Provedor externo de Score simulado (T05.1)
 
-O WireMock representa a dependência HTTP externa `GET /scores/{cpf}`. Nesta etapa, ele pode ser testado isoladamente; o endpoint público `GET /customers/{id}/score` será implementado na T05.2. Nenhuma alteração em Java, banco ou autenticação é necessária para testar o provedor.
+O WireMock representa a dependência HTTP externa `GET /scores/{cpf}`. Ele pode ser testado isoladamente, sem acessar banco ou autenticação. A T05.2 conecta o endpoint público `GET /customers/{id}/score` a esse provedor, conforme a próxima seção.
 
 Usamos a [imagem oficial do WireMock](https://wiremock.org/docs/standalone/docker/), fixada em `3.13.2`. Os mappings e corpos em `infra/wiremock/` são montados somente para leitura. A porta padrão é `18082`, publicada exclusivamente em loopback. Dentro da rede Compose, o endereço do provedor é `http://wiremock:8080`.
 
@@ -700,7 +702,7 @@ A resposta válida tem o formato:
 
 Os dois primeiros CPFs correspondem aos exemplos Ana Silva e Ana Souza da T03.3. Não é preciso cadastrar clientes para consultar diretamente o WireMock. CPF sem fixture, rota inexistente e método diferente de GET recebem 404 com `STUB_NOT_FOUND`; esse retorno indica ausência de fixture, enquanto `SCORE_NOT_FOUND` simula uma resposta de negócio do provedor.
 
-Os códigos acima pertencem ao provedor simulado. O mapeamento para os erros públicos da API, seus timeouts e limites de retry serão definidos na integração T05.2. O timeout de 300 ms do script demonstra somente a interrupção da espera pelo stub lento, sem antecipar a configuração do cliente Java. A alternativa seria alternar um cenário global do WireMock; fixtures por CPF permitem reproduzir sucesso e falhas simultaneamente, sem mudar o estado do servidor.
+Os códigos acima pertencem ao provedor simulado. O mapeamento para os erros públicos da API e a política do cliente Java estão descritos na T05.2. O timeout de 300 ms do script demonstra somente a interrupção da espera pelo stub lento. A alternativa seria alternar um cenário global do WireMock; fixtures por CPF permitem reproduzir sucesso e falhas simultaneamente, sem mudar o estado do servidor.
 
 ### Conferência manual
 
@@ -733,6 +735,90 @@ Para pará-lo sem afetar PostgreSQL/Keycloak:
 ```sh
 docker compose stop wiremock
 ```
+
+## Consulta de Score pela API (T05.2)
+
+`GET /customers/{id}/score` aceita tokens USER e ADMIN. O `CustomerScoreService` recupera um cliente disponível, encerra a transação de leitura e consulta `ScoreClient`. O adaptador `HttpScoreClient` usa [Spring RestClient](https://docs.spring.io/spring-framework/reference/6.2/integration/rest-clients.html) com transporte HTTP do JDK para chamar diretamente `GET /scores/{cpf}`. Não há serviço intermediário, persistência ou cache do resultado. Clientes INACTIVE continuam consultáveis; a exclusão lógica impede a consulta.
+
+### Contrato público e erros
+
+Sucesso 200, com `Cache-Control: no-store`:
+
+```json
+{"customerId":4,"score":750,"classification":"LOW_RISK"}
+```
+
+O CPF é obtido do cadastro, sem aceitá-lo como parâmetro do consumidor deste endpoint. Ele é enviado ao provedor e validado na resposta, mas não é incluído no DTO de Score. Uma resposta de outro CPF é rejeitada. O token da API não é repassado ao provedor e redirecionamentos não são seguidos.
+
+| Situação | HTTP público | code |
+|---|---|---|
+| ID inválido | 400 | `INVALID_REQUEST` |
+| Token ausente/inválido ou perfil sem permissão | 401 / 403 | `AUTHENTICATION_REQUIRED` / `ACCESS_DENIED` |
+| Cliente inexistente ou excluído; nenhuma chamada externa | 404 | `CUSTOMER_NOT_FOUND` |
+| Provedor retorna 404 | 404 | `SCORE_NOT_FOUND` |
+| JSON/contrato inválido, CPF divergente, corpo excessivo, media type inesperado, 3xx, 2xx diferente de 200 ou demais 4xx | 502 | `SCORE_INVALID_RESPONSE` |
+| Provedor retorna 429/5xx, conexão recusada ou falha de I/O sem timeout | 503 | `SCORE_UNAVAILABLE` |
+| Timeout de conexão/resposta/leitura do corpo | 504 | `SCORE_TIMEOUT` |
+
+As falhas usam o mesmo `ProblemDetail` da API, sem CPF, URL externa, headers, corpo ou stack trace. Um 404 distingue ausência do cliente de ausência do Score pelo `code`.
+
+O contrato adotado aceita `score` inteiro de 0 a 1000 e `classification` igual a `LOW_RISK`, `MEDIUM_RISK` ou `HIGH_RISK`. Essas são escolhas desta implementação para validar o provedor simulado; não há algoritmo interno para calcular classificação. Os três campos externos (`cpf`, `score`, `classification`) são obrigatórios e não nulos. Propriedades adicionais do provedor são ignoradas para permitir metadados, enquanto propriedades duplicadas e conteúdo após o JSON são recusados. Corpos de sucesso são limitados a 4096 bytes.
+
+### Timeouts e política de novas tentativas
+
+| Variável | Default | Limite aceito |
+|---|---|---|
+| `SCORE_BASE_URL` | `http://localhost:18082` | Origem HTTP/HTTPS sem credenciais, caminho, query ou fragmento |
+| `SCORE_CONNECT_TIMEOUT_MS` | 500 | 1 a 5000 ms |
+| `SCORE_READ_TIMEOUT_MS` | 1000 | 1 a 10000 ms |
+| `SCORE_MAX_ATTEMPTS` | 2 | 1 a 3 tentativas totais no adaptador, incluindo a inicial |
+| `SCORE_RETRY_DELAY_MS` | 100 | 0 a 500 ms entre tentativas |
+
+O timeout de resposta do [JdkClientHttpRequestFactory](https://docs.spring.io/spring-framework/docs/6.2.x/javadoc-api/org/springframework/http/client/JdkClientHttpRequestFactory.html) limita a espera também durante a leitura do corpo. O adaptador repete somente 500/502/503/504 do provedor e falhas de I/O sem timeout, até o máximo configurado. Timeout, 404, 429, demais 4xx, outros 5xx e resposta inválida não são repetidos. Uma thread interrompida mantém a interrupção e encerra a operação.
+
+A política padrão faz uma tentativa adicional após 100 ms para falhas transitórias, enquanto interrompe o stub lento em cerca de um segundo, sem retry. Isso limita a espera e evita amplificar um provedor já lento. Uma alternativa é `SCORE_MAX_ATTEMPTS=1`, reduzindo chamadas e latência, mas sem recuperação automática de falhas transitórias. Não há circuit breaker ou retry ilimitado. Limites inválidos impedem a inicialização.
+
+No host, os defaults funcionam com a porta padrão do WireMock. Se mudou `WIREMOCK_PORT`, exporte `SCORE_BASE_URL` com a porta efetiva antes de iniciar o Java. Dentro do container, use `SCORE_BASE_URL=http://wiremock:8080`, como no comando Docker. As variáveis do `.env` não são exportadas automaticamente para o Java iniciado no terminal.
+
+### Validação local
+
+Com Docker ativo, execute os testes e prepare as dependências:
+
+```sh
+./mvnw -Pintegration clean verify
+docker compose up -d --wait postgres keycloak wiremock
+python3 infra/wiremock/verify.py
+```
+
+Encerre a versão anterior da API. No terminal com as variáveis de banco já configuradas:
+
+```sh
+export SCORE_BASE_URL=http://localhost:18082
+java -jar customer-service/target/customer-service-0.0.1-SNAPSHOT.jar
+```
+
+Gere tokens novos no Postman e carregue `TOKEN_USER`/`TOKEN_ADMIN` conforme a seção de autenticação. Consulte a listagem ou a busca para obter IDs atuais. Se preservou os dados da T03.3, Ana Silva era o ID 4 e Ana Souza, o ID 5:
+
+```sh
+curl -i -H "Authorization: Bearer $TOKEN_USER" http://localhost:8080/customers/4/score
+curl -i -H "Authorization: Bearer $TOKEN_ADMIN" http://localhost:8080/customers/5/score
+curl -i http://localhost:8080/customers/4/score
+curl -i -H "Authorization: Bearer $TOKEN_USER" http://localhost:8080/customers/9223372036854775807/score
+```
+
+Esperado: 200 com score 750/LOW_RISK para Ana Silva; 200 com 450/MEDIUM_RISK para Ana Souza, mesmo INACTIVE; 401 sem token; e 404 `CUSTOMER_NOT_FOUND` para ID inexistente. Ajuste os IDs conforme seu banco. Se os clientes ainda não existem, cadastre-os com os payloads da T03.3; não substitua o CPF por um valor aleatório, pois o WireMock usa fixtures fixas. CPFs de registros já excluídos continuam reservados e não podem ser recadastrados.
+
+Para explorar falhas manualmente, use clientes disponíveis com os CPFs da tabela do provedor. Os retornos da API serão 404 para a fixture sem Score, 503 para as de 500/503, 502 para JSON inválido e 504 para atraso de três segundos. Não é preciso modificar seus dados locais para comprovar esses casos: `CustomerScoreIT` cadastra cada fixture em PostgreSQL descartável e verifica os erros e a contagem de chamadas. O teste do adaptador também cobre recuperação de 503 seguida de sucesso.
+
+Opcionalmente, pare somente o WireMock e repita uma consulta de Score de cliente disponível: uma conexão recusada retorna 503 `SCORE_UNAVAILABLE`. Se a rede aguardar até o timeout, o retorno é 504 `SCORE_TIMEOUT`, situação que também pode ocorrer pela rede Docker. Em seguida, inicie o simulador novamente:
+
+```sh
+docker compose stop wiremock
+curl -i -H "Authorization: Bearer $TOKEN_USER" http://localhost:8080/customers/4/score
+docker compose up -d --wait wiremock
+```
+
+O CRUD e o healthcheck não dependem de Score e continuam operando quando o provedor está fora do ar. Esta etapa não altera migrations, CPF reservado ou regras de exclusão lógica, nem publica eventos.
 
 ## Fluxo de desenvolvimento
 

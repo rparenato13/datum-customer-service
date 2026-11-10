@@ -2,6 +2,7 @@ package br.com.datum.customer.api;
 
 import br.com.datum.customer.application.CustomerNotFoundException;
 import br.com.datum.customer.application.InvalidCustomerQueryException;
+import br.com.datum.customer.application.score.ScoreClientException;
 import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +43,21 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(InvalidCustomerQueryException.class)
     ResponseEntity<Object> invalidQuery(InvalidCustomerQueryException ex, WebRequest request) {
         return respond(ex, invalidParameters(), request);
+    }
+
+    @ExceptionHandler(ScoreClientException.class)
+    ResponseEntity<Object> scoreFailure(ScoreClientException ex, WebRequest request) {
+        var body = switch (ex.reason()) {
+            case NOT_FOUND -> problem(HttpStatus.NOT_FOUND, "Score não encontrado",
+                    "Não há Score disponível para este cliente.", "SCORE_NOT_FOUND");
+            case INVALID_RESPONSE -> problem(HttpStatus.BAD_GATEWAY, "Resposta de Score inválida",
+                    "Não foi possível obter uma resposta válida para a consulta de Score.", "SCORE_INVALID_RESPONSE");
+            case UNAVAILABLE -> problem(HttpStatus.SERVICE_UNAVAILABLE, "Consulta de Score indisponível",
+                    "A consulta de Score está temporariamente indisponível.", "SCORE_UNAVAILABLE");
+            case TIMEOUT -> problem(HttpStatus.GATEWAY_TIMEOUT, "Tempo da consulta de Score excedido",
+                    "A consulta de Score excedeu o tempo permitido.", "SCORE_TIMEOUT");
+        };
+        return respond(ex, body, request);
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

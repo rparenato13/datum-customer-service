@@ -42,3 +42,9 @@ customer:
     issuer-uri: ${CUSTOMER_JWT_ISSUER_URI:http://localhost:18090/realms/datum}
     jwk-set-uri: ${CUSTOMER_JWT_JWK_SET_URI:${customer.security.issuer-uri}/protocol/openid-connect/certs}
     audience: ${CUSTOMER_JWT_AUDIENCE:customer-api}
+  score:
+    base-url: ${SCORE_BASE_URL:http://localhost:18082}
+    connect-timeout-ms: ${SCORE_CONNECT_TIMEOUT_MS:500}
+    read-timeout-ms: ${SCORE_READ_TIMEOUT_MS:1000}
+    max-attempts: ${SCORE_MAX_ATTEMPTS:2}
+    retry-delay-ms: ${SCORE_RETRY_DELAY_MS:100}

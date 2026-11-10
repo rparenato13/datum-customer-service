@@ -16,6 +16,12 @@
 
   <dependencies>
     <dependency>
+      <groupId>org.wiremock</groupId>
+      <artifactId>wiremock-standalone</artifactId>
+      <version>3.13.2</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
     </dependency>
@@ -76,6 +82,14 @@
         <targetPath>postgres-init</targetPath>
         <includes>
           <include>01-create-databases.sh</include>
+        </includes>
+      </testResource>
+      <testResource>
+        <directory>../infra/wiremock</directory>
+        <targetPath>score-provider</targetPath>
+        <includes>
+          <include>mappings/*.json</include>
+          <include>__files/*</include>
         </includes>
       </testResource>
     </testResources>
