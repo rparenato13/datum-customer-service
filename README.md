@@ -7,7 +7,7 @@ Solução para o desafio técnico Datum / DXC / Claro, organizada em dois servi�
 
 ## Estado da implementação
 
-Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. T09: consumidor de criação com inbox e notificação simulada transacionais em banco próprio, retries e DLQ. T10: Swagger UI/OpenAPI com autenticação Bearer, schemas, exemplos e respostas por operação. A orquestração completa permanece pendente.
+Etapas T01.1 e T01.2: build Maven multimódulo, inicialização das aplicações, testes de saúde HTTP e imagens Docker independentes. T02.1: PostgreSQL local com bancos e credenciais segregadas. T02.2: `customer-service` integrado a JPA/Flyway, tabela de clientes e exclusão lógica. T03.1: cadastro e consulta de clientes por ID, com DTOs, validação e erros padronizados. T03.2: atualização completa e exclusão lógica pela API. T03.3: listagem paginada, busca por nome e filtro por status. T04.1: Keycloak local e emissão de JWTs. T04.2: API como OAuth 2.0 Resource Server, validando JWT e aplicando permissões USER/ADMIN. T05.1: provedor de Score simulado com WireMock e cenários reproduzíveis. T05.2: consulta de Score pela API, com timeouts, retries limitados e erros controlados. T06: contratos de eventos aprovados. T07.1: RabbitMQ local com topologia e permissões provisionadas. T07.2: cadastro e evento atômicos no outbox, com publicação confirmada e recuperação de pendências. T08: consumo de status com controle de versão, inbox transacional, retry confirmado e DLQ. T09: consumidor de criação com inbox e notificação simulada transacionais em banco próprio, retries e DLQ. T10: Swagger UI/OpenAPI com autenticação Bearer, schemas, exemplos e respostas por operação. T11: limites de banco e suíte reproduzível de falhas distribuídas em ambiente descartável. A orquestração completa permanece pendente.
 
 ## Decisões da base
 
@@ -54,7 +54,7 @@ Os testes rápidos verificam saúde, resposta segura para falha interna, autenti
 ./mvnw -Pintegration clean verify
 ```
 
-Esse comando executa 269 testes rápidos e 240 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT`, 19 de Score em `CustomerScoreIT`, 29 de outbox/publicação em `CustomerOutboxIT`, 25 de consumo de status em `CustomerStatusChangeIT`, 20 de notificações em `NotificationConsumerIT` e 13 de contrato OpenAPI em `OpenApiContractIT`. São **509 testes**. PostgreSQL 17.11 e RabbitMQ 4.4.0 são criados por Testcontainers. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap PostgreSQL é o mesmo de `infra/postgres/init/`, e cada aplicação conecta como seu próprio usuário (`customer_app` ou `notification_app`), sem privilégios administrativos. Não é necessário subir as dependências do Compose para a suíte Maven. O Docker precisa estar ativo para os testes de integração; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco e o broker locais não recebem os dados dos testes.
+Esse comando executa 269 testes rápidos e 248 cenários de integração: 12 de persistência em `CustomerPersistenceIT`, 68 HTTP de cadastro/alteração/exclusão em `CustomerApiIT`, 54 de listagem/busca em `CustomerQueryIT`, 19 de Score em `CustomerScoreIT`, 29 de outbox/publicação em `CustomerOutboxIT`, 25 de consumo de status em `CustomerStatusChangeIT`, 20 de notificações em `NotificationConsumerIT`, 13 de contrato OpenAPI em `OpenApiContractIT` e oito de limites de banco em `DatabaseResilienceIT` (quatro por serviço). São **517 testes**. PostgreSQL 17.11 e RabbitMQ 4.4.0 são criados por Testcontainers. Os testes HTTP de negócio passam pela segurança com JWTs assinados. O bootstrap PostgreSQL é o mesmo de `infra/postgres/init/`, e cada aplicação conecta como seu próprio usuário (`customer_app` ou `notification_app`), sem privilégios administrativos. Não é necessário subir as dependências do Compose para a suíte Maven. O Docker precisa estar ativo para os testes de integração; se estiver indisponível, esses testes falham, em vez de serem ignorados. O banco e o broker locais não recebem os dados dos testes.
 
 Os 29 cenários de outbox verificam commit/rollback atômicos, falha na inserção do evento, CPF duplicado sem novo evento, payload/propriedades AMQP, broker parado, mandatory return, confirmação ausente/negativa, backoff persistido, evento inválido bloqueado, expiração de reserva, proteção contra confirmação por dono antigo, claims/publicações concorrentes e duplicata após queda entre confirm e atualização local. Os testes controlam o relay explicitamente para reproduzir falhas; apenas o agendamento fica desativado neles. O caminho real agendado é verificado na imagem Docker. Os 20 cenários de integração de notificações verificam transação atômica, duplicatas, concorrência, recuperação após commit sem ACK, falha de conexões, TTL, retry sem rota, DLQ e isolamento de banco/credencial. Os testes da T09 iniciam o serviço sem uma API de clientes em execução.
 
@@ -135,8 +135,8 @@ O valor fica na variável do terminal, sem ser incluído no comando salvo no his
 Execute todos os comandos abaixo na raiz do projeto. O ponto final dos comandos de build indica o contexto da raiz, necessário para acessar o POM pai e os POMs dos módulos.
 
 ```sh
-docker build -f customer-service/Dockerfile -t datum/customer-service:t10 .
-docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t09 .
+docker build -f customer-service/Dockerfile -t datum/customer-service:t11 .
+docker build -f customer-notification-service/Dockerfile -t datum/customer-notification-service:t11 .
 ```
 
 Cada Dockerfile tem dois estágios:
@@ -153,15 +153,15 @@ Prepare PostgreSQL/Keycloak/WireMock/RabbitMQ pelo Compose e exporte `CUSTOMER_D
 ```sh
 python3 infra/rabbitmq/configure.py
 docker compose up -d --wait postgres keycloak wiremock rabbitmq
-docker run -d --rm --name datum-customer-t10 --network datum_default --env CUSTOMER_DOCS_ENABLED --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 --env CUSTOMER_RABBITMQ_HOST=rabbitmq --env CUSTOMER_RABBITMQ_PORT=5672 --env CUSTOMER_RABBITMQ_PASSWORD -p 127.0.0.1:18080:8080 datum/customer-service:t10
-docker run -d --rm --name datum-notification-t09 --network datum_default --env NOTIFICATION_DB_URL=jdbc:postgresql://postgres:5432/notification_db --env NOTIFICATION_DB_PASSWORD --env NOTIFICATION_RABBITMQ_HOST=rabbitmq --env NOTIFICATION_RABBITMQ_PORT=5672 --env NOTIFICATION_RABBITMQ_PASSWORD -p 127.0.0.1:18081:8081 datum/customer-notification-service:t09
+docker run -d --rm --name datum-customer-t11 --network datum_default --env CUSTOMER_DOCS_ENABLED --env CUSTOMER_DB_PASSWORD --env CUSTOMER_DB_URL=jdbc:postgresql://postgres:5432/customer_db --env CUSTOMER_JWT_ISSUER_URI --env CUSTOMER_JWT_JWK_SET_URI=http://keycloak:8080/realms/datum/protocol/openid-connect/certs --env SCORE_BASE_URL=http://wiremock:8080 --env CUSTOMER_RABBITMQ_HOST=rabbitmq --env CUSTOMER_RABBITMQ_PORT=5672 --env CUSTOMER_RABBITMQ_PASSWORD -p 127.0.0.1:18080:8080 datum/customer-service:t11
+docker run -d --rm --name datum-notification-t11 --network datum_default --env NOTIFICATION_DB_URL=jdbc:postgresql://postgres:5432/notification_db --env NOTIFICATION_DB_PASSWORD --env NOTIFICATION_RABBITMQ_HOST=rabbitmq --env NOTIFICATION_RABBITMQ_PORT=5672 --env NOTIFICATION_RABBITMQ_PASSWORD -p 127.0.0.1:18081:8081 datum/customer-notification-service:t11
 ```
 
 As portas 18080 e 18081 no host evitam conflito com a execução Java nas portas 8080 e 8081. O acesso publicado fica restrito à máquina local. Aguarde as mensagens de inicialização nos logs:
 
 ```sh
-docker logs datum-customer-t10
-docker logs datum-notification-t09
+docker logs datum-customer-t11
+docker logs datum-notification-t11
 curl -i http://localhost:18080/actuator/health
 curl -i http://localhost:18081/actuator/health
 ```
@@ -171,14 +171,14 @@ Critério de validação: ambos respondem HTTP 200 com `{"status":"UP"}`. Se o `
 Confira o usuário dos processos:
 
 ```sh
-docker exec datum-customer-t10 id
-docker exec datum-notification-t09 id
+docker exec datum-customer-t11 id
+docker exec datum-notification-t11 id
 ```
 
 Resultado esperado: UID e GID 10001 (`app`). Para encerrar:
 
 ```sh
-docker stop datum-customer-t10 datum-notification-t09
+docker stop datum-customer-t11 datum-notification-t11
 ```
 
 O `--rm` remove os containers das aplicações após a parada; as imagens permanecem disponíveis para novos testes. Nenhuma imagem é publicada em registry por esses comandos. O PostgreSQL permanece ativo até `docker compose down`. Dentro da rede `datum_default`, a aplicação usa `postgres:5432`; no host, usa `localhost:15432`.
@@ -1264,6 +1264,32 @@ Fora da demonstração local, configure `CUSTOMER_DOCS_ENABLED=false`. Exporte a
 Os 15 testes rápidos da documentação conferem as sete operações/matriz de respostas, schemas/referências locais, campos obrigatórios, entrada fechada, version somente leitura, exemplos válidos na Bean Validation, arquivos HTML/CSS/JS e configuração local sem persistência de autorização. Também verificam que a API continua protegida e que desabilitar a documentação impede acesso anônimo e ADMIN.
 
 Os 13 cenários de `OpenApiContractIT` executam os exemplos **obtidos do documento gerado** contra controllers/segurança reais, PostgreSQL e WireMock descartáveis. Cobrem cadastro/409, consulta, página/busca, Score, PUT repetido, exclusão/404, validação, JSON inválido, 401/403 em todas as operações e os quatro erros mapeados de Score. As respostas são comparadas aos exemplos publicados; não acessam os dados locais. A imagem Docker também foi conferida com tokens reais do Keycloak, validação do documento pelo schema oficial OpenAPI e validação dos exemplos contra seus schemas.
+
+## Resiliência e falhas distribuídas (T11)
+
+As aplicações agora têm limites explícitos de conexão, pool, consulta, lock e transação no PostgreSQL. Os defaults por instância são pool máximo 10/mínimo ocioso 2; espera por conexão 2000 ms, validação 1000 ms; driver connect 2 s/socket 15 s; statement timeout 5000 ms, lock timeout 2000 ms e idle em transação 15000 ms. O gerenciador Spring usa timeout padrão de 10 s; operações com timeout explícito mantêm seu valor.
+
+São propriedades por serviço (`CUSTOMER_DB_*` e `NOTIFICATION_DB_*`, em `.env.example`) aplicadas às conexões da aplicação, sem alterar o servidor global, os usuários ou a conexão do DBeaver. Não há nova migration. Os testes reais conferem configurações, limite do pool, SQLSTATE de consulta/lock, rollback e recuperação. A espera limitada por camada não representa um prazo absoluto único para toda requisição.
+
+O [runbook T11](infra/resilience/README.md) descreve os limites, diagnóstico, garantias e nove cenários reproduzíveis. O verificador constrói as imagens T11 e cria um Compose aleatório com portas, volumes e credenciais exclusivos de teste. Não aceita destinos externos nem usa o banco/filas do projeto local.
+
+Para começar por um cenário:
+
+```sh
+python3 -m venv infra/rabbitmq/.venv
+infra/rabbitmq/.venv/bin/python -m pip install -r infra/rabbitmq/requirements-test.txt
+infra/rabbitmq/.venv/bin/python infra/resilience/verify.py --scenario score
+```
+
+Para a suíte inteira:
+
+```sh
+infra/rabbitmq/.venv/bin/python infra/resilience/verify.py
+```
+
+O ciclo inclui Score lento/fora, broker fora e reinício com outbox pendente, PostgreSQL fora, falha isolada de notificações, três retries reais até DLQ, perda entre confirm do retry e ACK, saturação, destino de DLQ sem rota e delivery-limit. Os TTLs de 5/30/120 s permanecem como aprovados; a suíte leva alguns minutos. `--scenario` permite selecionar casos e `--skip-build` reutiliza imagens da mesma revisão. O script limpa somente seus próprios containers/volumes ao final.
+
+Os contratos HTTP/eventos, backoff do outbox e idempotência permanecem os mesmos. No Score, uma conexão recusada resulta em 503; timeout de conexão/leitura resulta em 504. Falha de banco no CRUD continua 500/INTERNAL_ERROR sanitizado. Falhas permanentes não recebem retry de processamento; DLQ não possui replay automático. Após confirmação ambígua, consulte o estado antes de repetir uma intenção. O runbook distingue as provas com aplicações reais da simulação da janela protocolar confirm/ACK.
 
 ## Fluxo de desenvolvimento
 

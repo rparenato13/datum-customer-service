@@ -5,6 +5,17 @@ spring:
     url: ${NOTIFICATION_DB_URL:jdbc:postgresql://localhost:15432/notification_db}
     username: notification_app
     password: ${NOTIFICATION_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${NOTIFICATION_DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${NOTIFICATION_DB_POOL_MIN_IDLE:2}
+      connection-timeout: ${NOTIFICATION_DB_POOL_CONNECTION_TIMEOUT_MS:2000}
+      validation-timeout: ${NOTIFICATION_DB_POOL_VALIDATION_TIMEOUT_MS:1000}
+      data-source-properties:
+        connectTimeout: ${NOTIFICATION_DB_CONNECT_TIMEOUT_SECONDS:2}
+        socketTimeout: ${NOTIFICATION_DB_SOCKET_TIMEOUT_SECONDS:15}
+        options: "-c statement_timeout=${NOTIFICATION_DB_STATEMENT_TIMEOUT_MS:5000} -c lock_timeout=${NOTIFICATION_DB_LOCK_TIMEOUT_MS:2000} -c idle_in_transaction_session_timeout=${NOTIFICATION_DB_IDLE_TRANSACTION_TIMEOUT_MS:15000}"
+  transaction:
+    default-timeout: ${NOTIFICATION_DB_TRANSACTION_TIMEOUT_SECONDS:10}s
   flyway:
     clean-disabled: true
   rabbitmq:
