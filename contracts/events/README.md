@@ -1,5 +1,7 @@
 # Contratos de eventos — T06
 
+Os schemas e a topologia aprovados nesta etapa estão implementados. A linguagem de proposta nas decisões abaixo registra o contexto da aprovação; os produtores/consumidores, bootstrap automático e falhas foram verificados nas etapas seguintes. Para execução atual, consulte o [README](../../README.md), a [arquitetura](../../architecture/README.md) e o [roteiro de demonstração](../../guides/demo.md). Esta revisão documental não altera os contratos JSON v1.
+
 **Estado: APROVADO pelo responsável pelo projeto em 10/11/2026**, mediante aprovação explícita na conversa. A aprovação abrange os contratos, expectedVersion, topologia e políticas de entrega descritos neste documento. Nenhum produtor, consumidor, migration ou provisionamento RabbitMQ foi implementado nesta etapa. Validar os exemplos não comprova entrega no broker.
 
 Este diretório é a fonte compartilhável dos contratos. `docs/` permanece ignorado pelo Git. O enunciado exige publicação de `CUSTOMER_CREATED` e consumo de uma solicitação `CUSTOMER_STATUS_CHANGE`; os campos adicionais, versionamento, topologia e políticas abaixo são escolhas aprovadas deste projeto. As responsabilidades dos dois serviços permanecem as já definidas na arquitetura.

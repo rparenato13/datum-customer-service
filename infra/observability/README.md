@@ -6,7 +6,13 @@ Não há tracing distribuído instrumentado nesta etapa: `correlationId` permite
 
 ## 1. Habilitar localmente
 
-Faça o build com Java 21 e as dependências locais preparadas conforme o README principal. Finalize as versões anteriores dos serviços com `Ctrl+C`. Nos dois terminais, mantenha as variáveis de conexão já utilizadas e acrescente o perfil:
+No Compose completo, configure `APP_PROFILES=observability` no `.env` e aplique:
+
+```sh
+docker compose up -d
+```
+
+As aplicações são recriadas com o perfil, preservando bancos e filas. Para execução por JAR, siga o [guia de desenvolvimento](../../guides/development.md), finalize as versões anteriores com `Ctrl+C`, mantenha as variáveis de conexão e acrescente o perfil:
 
 ```sh
 java -jar customer-service/target/customer-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=observability
@@ -16,7 +22,7 @@ java -jar customer-service/target/customer-service-0.0.1-SNAPSHOT.jar --spring.p
 java -jar customer-notification-service/target/customer-notification-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=observability
 ```
 
-`APP_ENVIRONMENT` define o ambiente dos logs e métricas; default `local`. `DB_SLOW_QUERY_THRESHOLD_MS` define o limiar de query lenta; default 250 ms. Esses nomes constam no `.env.example`; o processo Java recebe somente variáveis exportadas no terminal. Em Docker, passe `--env SPRING_PROFILES_ACTIVE=observability --env APP_ENVIRONMENT` e, na notificação, `--env NOTIFICATION_MANAGEMENT_PASSWORD` aos comandos do README.
+`APP_ENVIRONMENT` define o ambiente dos logs e métricas; default `local`. `DB_SLOW_QUERY_THRESHOLD_MS` define o limiar de query lenta; default 250 ms. Esses nomes constam no `.env.example`; o processo Java iniciado no host recebe somente variáveis exportadas no terminal. No Compose, esses parâmetros são encaminhados pela composição; não é necessário executar docker run manualmente.
 
 A V4 do `customer-service` acrescenta `customer_outbox.correlation_id` e um índice parcial para coletar o backlog sem percorrer o histórico publicado. Eventos existentes recebem `correlation_id=event_id`; payload, instante, estado, tentativas e IDs permanecem preservados. O serviço de notificações mantém sua migration V1. Não apague volumes nem altere migrations anteriores para habilitar a etapa.
 
@@ -120,7 +126,7 @@ datum_outbox_pending and on(service, environment) (datum_outbox_collection_up ==
 
 Percentis dependem de volume e janela representativos; uma execução de demonstração não comprova capacidade. Histograms são limitados a 1 ms–30 s para os timers customizados, com bucket +Inf preservando observações maiores. Filtros de rota e outcomes têm cardinalidade limitada; CPF, e-mail, IDs, URLs reais e SQL não são tags.
 
-Para investigar busca por nome/status, use uma base descartável representativa e `EXPLAIN (ANALYZE, BUFFERS)` de uma consulta SELECT equivalente, relacionando plano/leituras com `datum.db.query.duration` e as métricas de pool. Um plano com tabela quase vazia não justifica criar índices. A análise sob carga e o relatório de capacidade permanecem nas etapas de performance do planejamento.
+Para investigar busca por nome/status, use uma base descartável representativa e `EXPLAIN (ANALYZE, BUFFERS)` de uma consulta SELECT equivalente, relacionando plano/leituras com `datum.db.query.duration` e as métricas de pool. Um plano com tabela quase vazia não justifica criar índices. O [relatório de performance](../../performance/performance-report.md) registra a baseline medida e suas limitações; não é uma avaliação de capacidade máxima.
 
 Os logs de conclusão são INFO e podem afetar testes de carga. Ajuste os níveis dos loggers de observação por ambiente e registre essa configuração na medição; mantenha WARN para falhas/queries lentas. Não habilite SQL, bind parameters ou DEBUG HTTP como instrumento de performance. Um APM compatível pode receber instrumentação futura OpenTelemetry/Micrometer; nenhum agente Dynatrace está instalado por padrão.
 
